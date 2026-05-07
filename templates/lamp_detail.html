@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+  <h2>가로등 정보</h2>
+  <p><strong>ID:</strong> {{ lamp.id }}</p>
+  <p><strong>위치:</strong> {{ lamp.location }}</p>
+  {% if lamp.description %}
+    <p><strong>설명:</strong> {{ lamp.description }}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>정비 의뢰</h2>
+  <form action="/lamp/{{ lamp.id }}/request" method="post" class="form">
+    <label>
+      이름 (필수)
+      <input type="text" name="name" required />
+    </label>
+
+    <label>
+      전화번호 (필수)
+      <input type="tel" name="phone" required />
+    </label>
+
+    <label>
+      정비 유형 (필수)
+      <select name="request_type" required>
+        <option value="{{ request_types.outage.value }}">불점등</option>
+        <option value="{{ request_types.globe_broken.value }}">글로브 파손</option>
+        <option value="{{ request_types.fall_risk.value }}">전도 위험</option>
+        <option value="{{ request_types.low_brightness.value }}">조도 불량</option>
+        <option value="{{ request_types.other.value }}">기타</option>
+      </select>
+    </label>
+
+    <label>
+      상세 내용 (선택)
+      <textarea name="content" rows="3" placeholder="추가로 설명하고 싶은 내용이 있으면 적어주세요."></textarea>
+    </label>
+
+    <button type="submit" class="btn-primary">정비 의뢰 보내기</button>
+  </form>
+</section>
+{% endblock %}

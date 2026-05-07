@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+  <div class="admin-header">
+    <h2>정비 의뢰 목록</h2>
+    <a href="/admin/logout" class="btn-secondary">로그아웃</a>
+  </div>
+
+  {% if requests_list|length == 0 %}
+    <p>아직 접수된 정비 의뢰가 없습니다.</p>
+  {% else %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>가로등</th>
+          <th>이름</th>
+          <th>전화번호</th>
+          <th>유형</th>
+          <th>내용</th>
+          <th>상태</th>
+          <th>처리</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in requests_list %}
+        <tr>
+          <td>{{ r.id }}</td>
+          <td>{{ r.lamp_id }}</td>
+          <td>{{ r.name }}</td>
+          <td>{{ r.phone }}</td>
+          <td>{{ r.request_type.name }}</td>
+          <td>{{ r.content or "" }}</td>
+          <td>{{ r.status.name }}</td>
+          <td>
+            <form action="/admin/requests/{{ r.id }}/status" method="post" class="inline-form">
+              <select name="status">
+                <option value="{{ RequestStatus.received.value }}" {% if r.status == RequestStatus.received %}selected{% endif %}>
+                  접수
+                </option>
+                <option value="{{ RequestStatus.in_progress.value }}" {% if r.status == RequestStatus.in_progress %}selected{% endif %}>
+                  처리중
+                </option>
+                <option value="{{ RequestStatus.done.value }}" {% if r.status == RequestStatus.done %}selected{% endif %}>
+                  완료
+                </option>
+              </select>
+              <button type="submit" class="btn-small">변경</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+{% endblock %}
