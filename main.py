@@ -161,12 +161,28 @@ async def admin_requests(
     )
     requests_list = result.scalars().all()
 
+    # 관리자 화면에서 Enum을 한글로 보여주기 위한 매핑
+    RequestTypeLabel = {
+        RequestType.outage.value: "불점등",
+        RequestType.globe_broken.value: "글로브 파손",
+        RequestType.fall_risk.value: "전도 위험",
+        RequestType.low_brightness.value: "조도 불량",
+        RequestType.other.value: "기타",
+    }
+    RequestStatusLabel = {
+        RequestStatus.received.value: "접수",
+        RequestStatus.in_progress.value: "처리중",
+        RequestStatus.done.value: "완료",
+    }
+
     return templates.TemplateResponse(
         request,
         "admin_requests.html",
         {
             "requests_list": requests_list,
             "RequestStatus": RequestStatus,
+            "RequestTypeLabel": RequestTypeLabel,
+            "RequestStatusLabel": RequestStatusLabel,
         },
     )
 

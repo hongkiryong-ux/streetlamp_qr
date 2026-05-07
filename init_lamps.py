@@ -11,20 +11,22 @@ async def init():
         await conn.run_sync(Base.metadata.create_all)
 
     async with AsyncSessionLocal() as session:
-        # 예시로 1~5번 가로등 등록
-        lamps_data = [
-            (1, "OO동 1번 가로등", "OO아파트 앞 교차로"),
-            (2, "OO동 2번 가로등", "OO초등학교 후문"),
-            (3, "OO동 3번 가로등", "OO시장 입구"),
-            (4, "OO동 4번 가로등", "공원 입구"),
-            (5, "OO동 5번 가로등", "버스 정류장 앞"),
-        ]
+        # 1~100번 가로등 등록(일단 테스트용 기본값)
+        # 실제 위치/설명은 나중에 원하실 때 CSV/수동으로 바꿔도 됩니다.
+        for lamp_id in range(1, 101):
+            location = f"가로등 {lamp_id}번"
+            description = None
 
-        for lamp_id, location, description in lamps_data:
             result = await session.execute(select(Lamp).where(Lamp.id == lamp_id))
-            lamp = result.scalar_one_or_none()
-            if not lamp:
-                session.add(Lamp(id=lamp_id, location=location, description=description))
+            existing = result.scalar_one_or_none()
+            if not existing:
+                session.add(
+                    Lamp(
+                        id=lamp_id,
+                        location=location,
+                        description=description,
+                    )
+                )
 
         await session.commit()
 
