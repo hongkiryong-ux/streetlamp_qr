@@ -7,6 +7,33 @@
     <a href="/admin/logout" class="btn-secondary">로그아웃</a>
   </div>
 
+  <form method="get" action="/admin/requests" class="form" style="margin-bottom: 0.75rem;">
+    <label>
+      검색 (이름/전화/내용/가로등ID)
+      <input type="text" name="q" value="{{ q }}" placeholder="예: 홍길동, 010, 불점등, 12" />
+    </label>
+
+    <label>
+      상태 필터
+      <select name="status">
+        <option value="" {% if not status_filter %}selected{% endif %}>전체</option>
+        <option value="{{ RequestStatus.received.value }}" {% if status_filter == RequestStatus.received.value %}selected{% endif %}>접수</option>
+        <option value="{{ RequestStatus.in_progress.value }}" {% if status_filter == RequestStatus.in_progress.value %}selected{% endif %}>처리중</option>
+        <option value="{{ RequestStatus.done.value }}" {% if status_filter == RequestStatus.done.value %}selected{% endif %}>완료</option>
+      </select>
+    </label>
+
+    <label style="display:flex; gap:0.5rem; align-items:center;">
+      <input type="checkbox" name="include_done" {% if include_done %}checked{% endif %} />
+      완료 포함(기본은 완료 숨김)
+    </label>
+
+    <div style="display:flex; gap:0.5rem; align-items:center;">
+      <button type="submit" class="btn-primary" style="width:auto;">검색/필터 적용</button>
+      <a class="btn-secondary" href="/admin/requests/export?q={{ q }}&status={{ status_filter }}{% if include_done %}&include_done=on{% endif %}">엑셀 다운로드</a>
+    </div>
+  </form>
+
   {% if requests_list|length == 0 %}
     <p>아직 접수된 정비 의뢰가 없습니다.</p>
   {% else %}
