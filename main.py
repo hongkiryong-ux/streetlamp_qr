@@ -469,6 +469,9 @@ async def admin_settings_test_email(request: Request):
         msg = await run_daily_report_pipeline(session, to_email)
     request.session["admin_notice"] = msg
     return RedirectResponse(url="/admin/settings", status_code=302)
+
+
+@app.get("/admin/requests")
 async def admin_requests(
     request: Request,
     db: AsyncSession = Depends(get_db),
