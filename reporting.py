@@ -49,8 +49,8 @@ def build_xlsx_bytes(rows: list[MaintenanceRequest]) -> tuple[bytes, str]:
     ws.title = "48h"
     ws.append(
         [
-            "접수ID",
-            "가로등ID",
+            "접수번호",
+            "가로등 No",
             "접수일시(KST)",
             "이름",
             "전화번호",

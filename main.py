@@ -215,7 +215,7 @@ def _admin_requests_select(
             )
         )
 
-    # 통합 검색(q): 이름·전화·내용·가로등ID 문자열에 OR
+    # 통합 검색(q): 이름·전화·내용·가로등 번호 문자열에 OR
     if q_strip:
         pattern = f"%{q_strip.lower()}%"
         stmt = stmt.where(
@@ -322,7 +322,6 @@ async def create_request(
     # 템플릿에는 ORM 객체를 넘기지 않음: 응답 렌더 시점에 DB 세션이 닫히면
     # Jinja가 lamp 필드 접근 시 lazy-load → MissingGreenlet(500) 발생할 수 있음
     lamp_id_val = lamp.id
-    lamp_location_val = lamp.location
 
     new_req = MaintenanceRequest(
         lamp_id=lamp_id,
@@ -337,7 +336,7 @@ async def create_request(
     return templates.TemplateResponse(
         request,
         "request_submitted.html",
-        {"lamp_id": lamp_id_val, "lamp_location": lamp_location_val},
+        {"lamp_id": lamp_id_val},
     )
 
 
@@ -762,8 +761,8 @@ async def admin_requests_export(
 
     ws.append(
         [
-            "접수ID",
-            "가로등ID",
+            "접수번호",
+            "가로등 No",
             "접수일시(KST)",
             "이름",
             "전화번호",

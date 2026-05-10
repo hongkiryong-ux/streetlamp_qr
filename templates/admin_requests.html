@@ -43,7 +43,7 @@
       <legend>세부 조건</legend>
       <div class="filter-row">
         <label>
-          가로등 번호
+          가로등 No
           <input type="number" name="lamp_id" value="{{ lamp_id }}" min="1" placeholder="예: 12" />
         </label>
         <label>
@@ -77,7 +77,7 @@
     <fieldset class="filter-fieldset">
       <legend>통합 검색 · 상태</legend>
       <label class="filter-grow">
-        통합 검색 (이름·전화·내용·가로등번호 문자열, OR)
+        통합 검색 (이름·전화·내용·가로등 No 문자열, OR)
         <input type="text" name="q" value="{{ q }}" placeholder="예: 홍길동, 010, 12" />
       </label>
 
@@ -108,9 +108,8 @@
     <table class="table admin-requests-table">
       <thead>
         <tr>
-          <th class="col-narrow">ID</th>
           <th class="col-datetime">접수일</th>
-          <th class="col-narrow">가로등</th>
+          <th class="col-narrow">가로등 No</th>
           <th class="col-name">이름</th>
           <th class="col-phone">전화</th>
           <th class="col-type">유형</th>
@@ -124,7 +123,6 @@
       <tbody>
         {% for r in requests_list %}
         <tr id="admin-req-{{ r.id }}">
-          <td class="col-narrow">{{ r.id }}</td>
           <td class="col-datetime nowrap">{{ r.created_at | fmt_kst_date }}</td>
           <td class="col-narrow">{{ r.lamp_id }}</td>
           <td class="col-name ellipsis" title="{{ r.name }}">{{ r.name }}</td>
