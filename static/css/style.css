@@ -112,3 +112,53 @@ body {
   gap: 0.25rem;
   align-items: center;
 }
+
+.admin-filter-form .filter-fieldset {
+  border: 1px solid #ddd;
+  border-radius: 0.35rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.admin-filter-form legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.admin-filter-form .filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.admin-filter-form .filter-row label {
+  flex: 1 1 140px;
+  min-width: 120px;
+  margin-bottom: 0;
+}
+
+.admin-filter-form .filter-grow {
+  flex: 2 1 220px;
+}
+
+.admin-filter-form .filter-checkbox {
+  flex: 2 1 280px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-filter-form .filter-checkbox input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.admin-filter-form .filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}

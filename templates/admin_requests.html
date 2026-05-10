@@ -7,35 +7,90 @@
     <a href="/admin/logout" class="btn-secondary">로그아웃</a>
   </div>
 
-  <form method="get" action="/admin/requests" class="form" style="margin-bottom: 0.75rem;">
-    <label>
-      검색 (이름/전화/내용/가로등ID)
-      <input type="text" name="q" value="{{ q }}" placeholder="예: 홍길동, 010, 불점등, 12" />
-    </label>
+  <form method="get" action="/admin/requests" class="form admin-filter-form">
+    <fieldset class="filter-fieldset">
+      <legend>접수 기간 (KST 기준)</legend>
+      <div class="filter-row">
+        <label>
+          시작일
+          <input type="date" name="date_from" value="{{ date_from }}" />
+        </label>
+        <label>
+          종료일
+          <input type="date" name="date_to" value="{{ date_to }}" />
+        </label>
+      </div>
+    </fieldset>
 
-    <label>
-      상태 필터
-      <select name="status">
-        <option value="" {% if not status_filter %}selected{% endif %}>전체</option>
-        <option value="{{ RequestStatus.received.value }}" {% if status_filter == RequestStatus.received.value %}selected{% endif %}>접수</option>
-        <option value="{{ RequestStatus.in_progress.value }}" {% if status_filter == RequestStatus.in_progress.value %}selected{% endif %}>처리중</option>
-        <option value="{{ RequestStatus.done.value }}" {% if status_filter == RequestStatus.done.value %}selected{% endif %}>완료</option>
-      </select>
-    </label>
+    <fieldset class="filter-fieldset">
+      <legend>세부 조건</legend>
+      <div class="filter-row">
+        <label>
+          가로등 번호
+          <input type="number" name="lamp_id" value="{{ lamp_id }}" min="1" placeholder="예: 12" />
+        </label>
+        <label>
+          정비 유형
+          <select name="request_type">
+            <option value="" {% if not request_type_filter %}selected{% endif %}>전체</option>
+            <option value="{{ RequestType.outage.value }}" {% if request_type_filter == RequestType.outage.value %}selected{% endif %}>불점등</option>
+            <option value="{{ RequestType.globe_broken.value }}" {% if request_type_filter == RequestType.globe_broken.value %}selected{% endif %}>글로브 파손</option>
+            <option value="{{ RequestType.fall_risk.value }}" {% if request_type_filter == RequestType.fall_risk.value %}selected{% endif %}>전도 위험</option>
+            <option value="{{ RequestType.low_brightness.value }}" {% if request_type_filter == RequestType.low_brightness.value %}selected{% endif %}>조도 불량</option>
+            <option value="{{ RequestType.other.value }}" {% if request_type_filter == RequestType.other.value %}selected{% endif %}>기타</option>
+          </select>
+        </label>
+        <label>
+          이름 (부분 검색)
+          <input type="text" name="name" value="{{ name }}" placeholder="예: 홍길동" />
+        </label>
+      </div>
+      <div class="filter-row">
+        <label>
+          전화번호 (부분 검색)
+          <input type="text" name="phone" value="{{ phone }}" placeholder="예: 010" />
+        </label>
+        <label class="filter-grow">
+          내용 (부분 검색)
+          <input type="text" name="content" value="{{ content }}" placeholder="상세 내용 키워드" />
+        </label>
+      </div>
+    </fieldset>
 
-    <label style="display:flex; gap:0.5rem; align-items:center;">
-      <input type="checkbox" name="include_done" {% if include_done %}checked{% endif %} />
-      완료 포함 (상태가 <strong>전체</strong>이고 검색어가 없을 때만 적용 · 검색 시에는 완료 건도 검색됨)
-    </label>
+    <fieldset class="filter-fieldset">
+      <legend>통합 검색 · 상태</legend>
+      <label class="filter-grow">
+        통합 검색 (이름·전화·내용·가로등번호 문자열, OR)
+        <input type="text" name="q" value="{{ q }}" placeholder="예: 홍길동, 010, 12" />
+      </label>
 
-    <div style="display:flex; gap:0.5rem; align-items:center;">
-      <button type="submit" class="btn-primary" style="width:auto;">검색/필터 적용</button>
-      <a class="btn-secondary" href="/admin/requests/export?q={{ q }}&status={{ status_filter }}{% if include_done %}&include_done=on{% endif %}">엑셀 다운로드</a>
+      <div class="filter-row">
+        <label>
+          처리 상태
+          <select name="status">
+            <option value="" {% if not status_filter %}selected{% endif %}>전체</option>
+            <option value="{{ RequestStatus.received.value }}" {% if status_filter == RequestStatus.received.value %}selected{% endif %}>접수</option>
+            <option value="{{ RequestStatus.in_progress.value }}" {% if status_filter == RequestStatus.in_progress.value %}selected{% endif %}>처리중</option>
+            <option value="{{ RequestStatus.done.value }}" {% if status_filter == RequestStatus.done.value %}selected{% endif %}>완료</option>
+          </select>
+        </label>
+
+        <label class="filter-checkbox">
+          <input type="checkbox" name="include_done" {% if include_done %}checked{% endif %} />
+          완료 포함 (상태가 <strong>전체</strong>이고 아래 세부·기간·통합 검색이 모두 비었을 때만 적용)
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="filter-actions">
+      <button type="submit" class="btn-primary" style="width:auto;">검색 적용</button>
+      <a class="btn-secondary" href="/admin/requests">조건 초기화</a>
+      <a class="btn-secondary" href="/admin/requests/export{% if export_qs %}?{{ export_qs }}{% endif %}">엑셀 다운로드 (현재 조건)</a>
     </div>
   </form>
 
   {% if requests_list|length == 0 %}
-    <p>아직 접수된 정비 의뢰가 없습니다.</p>
+    <p>조건에 맞는 정비 의뢰가 없습니다.</p>
   {% else %}
     <table class="table">
       <thead>

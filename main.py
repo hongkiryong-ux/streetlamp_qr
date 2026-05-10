@@ -15,8 +15,9 @@ from starlette.responses import StreamingResponse
 
 import os
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, time
 from zoneinfo import ZoneInfo
+from urllib.parse import urlencode
 
 import openpyxl
 
@@ -41,14 +42,48 @@ templates = Jinja2Templates(directory="templates")
 templates.env.filters["fmt_kst"] = _fmt_kst
 
 
+def _parse_date_yyyy_mm_dd(s: str) -> date | None:
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 def _admin_requests_select(
     include_done: bool,
     status_filter: str,
     q: str,
+    *,
+    date_from: str = "",
+    date_to: str = "",
+    lamp_id: str = "",
+    name: str = "",
+    phone: str = "",
+    content: str = "",
+    request_type_filter: str = "",
 ):
     """관리자 목록/엑셀에서 동일하게 사용하는 쿼리."""
     stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc())
     q_strip = (q or "").strip()
+    name_s = (name or "").strip()
+    phone_s = (phone or "").strip()
+    content_s = (content or "").strip()
+    lamp_s = (lamp_id or "").strip()
+
+    # 어떤 조건이라도 걸면 '전체+미완료만' 기본 숨김을 해제(세부 검색·기간 검색 시 완료도 포함)
+    has_active_filters = bool(
+        q_strip
+        or name_s
+        or phone_s
+        or content_s
+        or lamp_s
+        or (date_from or "").strip()
+        or (date_to or "").strip()
+        or (request_type_filter or "").strip()
+    )
 
     # 상태 필터가 있으면 해당 상태만 (완료만 보기 등)
     if status_filter:
@@ -59,23 +94,105 @@ def _admin_requests_select(
         except ValueError:
             pass
     else:
-        # 전체: 기본은 완료(done) 제외.
-        # 검색어가 있으면 완료 건도 검색 결과에 포함되게 한다.
-        if not include_done and not q_strip:
+        # 전체: 기본은 완료(done) 제외. 필터/검색이 없을 때만.
+        if not include_done and not has_active_filters:
             stmt = stmt.where(MaintenanceRequest.status != RequestStatus.done)
 
-    if q:
-        pattern = f"%{q.lower()}%"
+    # 접수 기간 (입력일은 KST 달력 기준, DB는 naive UTC로 저장된 값과 비교)
+    kst = ZoneInfo("Asia/Seoul")
+    d_from = _parse_date_yyyy_mm_dd(date_from)
+    if d_from is not None:
+        utc_start = datetime.combine(d_from, time.min, tzinfo=kst).astimezone(
+            timezone.utc
+        ).replace(tzinfo=None)
+        stmt = stmt.where(MaintenanceRequest.created_at >= utc_start)
+
+    d_to = _parse_date_yyyy_mm_dd(date_to)
+    if d_to is not None:
+        utc_end = datetime.combine(d_to, time.max.replace(microsecond=999999), tzinfo=kst).astimezone(
+            timezone.utc
+        ).replace(tzinfo=None)
+        stmt = stmt.where(MaintenanceRequest.created_at <= utc_end)
+
+    # 가로등 번호 (정확히 일치)
+    if lamp_s.isdigit():
+        stmt = stmt.where(MaintenanceRequest.lamp_id == int(lamp_s))
+
+    # 정비 유형
+    if (request_type_filter or "").strip():
+        try:
+            stmt = stmt.where(
+                MaintenanceRequest.request_type == RequestType(request_type_filter)
+            )
+        except ValueError:
+            pass
+
+    # 이름 / 전화 / 내용 (부분 일치, AND)
+    if name_s:
+        stmt = stmt.where(
+            func.lower(MaintenanceRequest.name).like(f"%{name_s.lower()}%")
+        )
+    if phone_s:
+        stmt = stmt.where(
+            func.lower(MaintenanceRequest.phone).like(f"%{phone_s.lower()}%")
+        )
+    if content_s:
+        stmt = stmt.where(
+            func.lower(func.coalesce(MaintenanceRequest.content, "")).like(
+                f"%{content_s.lower()}%"
+            )
+        )
+
+    # 통합 검색(q): 이름·전화·내용·가로등ID 문자열에 OR
+    if q_strip:
+        pattern = f"%{q_strip.lower()}%"
         stmt = stmt.where(
             or_(
                 func.lower(MaintenanceRequest.name).like(pattern),
                 func.lower(MaintenanceRequest.phone).like(pattern),
                 func.lower(func.coalesce(MaintenanceRequest.content, "")).like(pattern),
-                cast(MaintenanceRequest.lamp_id, String).like(f"%{q}%"),
+                cast(MaintenanceRequest.lamp_id, String).like(f"%{q_strip}%"),
             )
         )
 
     return stmt
+
+
+def _admin_export_query_string(
+    *,
+    q: str,
+    status_filter: str,
+    include_done: bool,
+    date_from: str,
+    date_to: str,
+    lamp_id: str,
+    name: str,
+    phone: str,
+    content: str,
+    request_type_filter: str,
+) -> str:
+    params: dict[str, str] = {}
+    if (q or "").strip():
+        params["q"] = q.strip()
+    if (status_filter or "").strip():
+        params["status"] = status_filter.strip()
+    if include_done:
+        params["include_done"] = "on"
+    if (date_from or "").strip():
+        params["date_from"] = date_from.strip()
+    if (date_to or "").strip():
+        params["date_to"] = date_to.strip()
+    if (lamp_id or "").strip():
+        params["lamp_id"] = lamp_id.strip()
+    if (name or "").strip():
+        params["name"] = name.strip()
+    if (phone or "").strip():
+        params["phone"] = phone.strip()
+    if (content or "").strip():
+        params["content"] = content.strip()
+    if (request_type_filter or "").strip():
+        params["request_type"] = request_type_filter.strip()
+    return urlencode(params)
 
 
 @app.on_event("startup")
@@ -217,8 +334,26 @@ async def admin_requests(
         "yes",
     )
     status_filter = (request.query_params.get("status") or "").strip()
+    date_from = (request.query_params.get("date_from") or "").strip()
+    date_to = (request.query_params.get("date_to") or "").strip()
+    lamp_id = (request.query_params.get("lamp_id") or "").strip()
+    name = (request.query_params.get("name") or "").strip()
+    phone = (request.query_params.get("phone") or "").strip()
+    content = (request.query_params.get("content") or "").strip()
+    request_type_filter = (request.query_params.get("request_type") or "").strip()
 
-    stmt = _admin_requests_select(include_done, status_filter, q)
+    stmt = _admin_requests_select(
+        include_done,
+        status_filter,
+        q,
+        date_from=date_from,
+        date_to=date_to,
+        lamp_id=lamp_id,
+        name=name,
+        phone=phone,
+        content=content,
+        request_type_filter=request_type_filter,
+    )
 
     result = await db.execute(stmt)
     requests_list = result.scalars().all()
@@ -237,17 +372,39 @@ async def admin_requests(
         RequestStatus.done.value: "완료",
     }
 
+    export_qs = _admin_export_query_string(
+        q=q,
+        status_filter=status_filter,
+        include_done=include_done,
+        date_from=date_from,
+        date_to=date_to,
+        lamp_id=lamp_id,
+        name=name,
+        phone=phone,
+        content=content,
+        request_type_filter=request_type_filter,
+    )
+
     return templates.TemplateResponse(
         request,
         "admin_requests.html",
         {
             "requests_list": requests_list,
             "RequestStatus": RequestStatus,
+            "RequestType": RequestType,
             "RequestTypeLabel": RequestTypeLabel,
             "RequestStatusLabel": RequestStatusLabel,
             "q": q,
             "include_done": include_done,
             "status_filter": status_filter,
+            "date_from": date_from,
+            "date_to": date_to,
+            "lamp_id": lamp_id,
+            "name": name,
+            "phone": phone,
+            "content": content,
+            "request_type_filter": request_type_filter,
+            "export_qs": export_qs,
         },
     )
 
@@ -269,8 +426,26 @@ async def admin_requests_export(
         "yes",
     )
     status_filter = (request.query_params.get("status") or "").strip()
+    date_from = (request.query_params.get("date_from") or "").strip()
+    date_to = (request.query_params.get("date_to") or "").strip()
+    lamp_id = (request.query_params.get("lamp_id") or "").strip()
+    name = (request.query_params.get("name") or "").strip()
+    phone = (request.query_params.get("phone") or "").strip()
+    content = (request.query_params.get("content") or "").strip()
+    request_type_filter = (request.query_params.get("request_type") or "").strip()
 
-    stmt = _admin_requests_select(include_done, status_filter, q)
+    stmt = _admin_requests_select(
+        include_done,
+        status_filter,
+        q,
+        date_from=date_from,
+        date_to=date_to,
+        lamp_id=lamp_id,
+        name=name,
+        phone=phone,
+        content=content,
+        request_type_filter=request_type_filter,
+    )
 
     result = await db.execute(stmt)
     rows = result.scalars().all()
