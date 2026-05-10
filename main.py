@@ -348,8 +348,40 @@ ADMIN_ID = os.environ.get("ADMIN_ID", "admin")
 ADMIN_PW = os.environ.get("ADMIN_PW", "password123")
 
 
+def _load_guest_accounts() -> dict[str, str]:
+    """게스트 로그인 최대 10개: GUEST_1_ID / GUEST_1_PW … GUEST_10_ID / GUEST_10_PW"""
+    out: dict[str, str] = {}
+    for i in range(1, 11):
+        gid = os.environ.get(f"GUEST_{i}_ID", "").strip()
+        gpw = os.environ.get(f"GUEST_{i}_PW", "").strip()
+        if gid and gpw:
+            out[gid] = gpw
+    return out
+
+
+GUEST_ACCOUNTS = _load_guest_accounts()
+
+
+def _plain_pw_matches(given: str, stored: str) -> bool:
+    """secrets.compare_digest는 길이가 다르면 예외가 날 수 있어 길이 확인 후 비교."""
+    ga = given.encode("utf-8")
+    sb = stored.encode("utf-8")
+    if len(ga) != len(sb):
+        return False
+    return secrets.compare_digest(ga, sb)
+
+
 def is_admin_logged_in(request: Request) -> bool:
     return request.session.get("admin_logged_in", False)
+
+
+def is_guest_logged_in(request: Request) -> bool:
+    return bool(request.session.get("guest_logged_in"))
+
+
+def is_staff_logged_in(request: Request) -> bool:
+    """관리자 또는 게스트(목록·검색·수정 허용)."""
+    return is_admin_logged_in(request) or is_guest_logged_in(request)
 
 
 def admin_app_path(request: Request, path: str) -> str:
@@ -404,7 +436,7 @@ def _safe_admin_requests_referer(request: Request, referer: str) -> str | None:
 
 @app.get("/admin/login")
 async def admin_login_form(request: Request):
-    if is_admin_logged_in(request):
+    if is_staff_logged_in(request):
         return RedirectResponse(
             url=admin_app_path(request, "/admin/requests"), status_code=302
         )
@@ -421,17 +453,26 @@ async def admin_login(
     admin_id: str = Form(...),
     admin_pw: str = Form(...),
 ):
-    if admin_id == ADMIN_ID and admin_pw == ADMIN_PW:
+    uid = (admin_id or "").strip()
+    pw = admin_pw or ""
+    if uid == ADMIN_ID and pw == ADMIN_PW:
         request.session["admin_logged_in"] = True
+        request.session.pop("guest_logged_in", None)
         return RedirectResponse(
             url=admin_app_path(request, "/admin/requests"), status_code=302
         )
-    else:
-        return templates.TemplateResponse(
-            request,
-            "admin_login.html",
-            {**admin_paths(request), "error": "아이디 또는 비밀번호가 잘못되었습니다."},
+    expected = GUEST_ACCOUNTS.get(uid)
+    if expected is not None and _plain_pw_matches(pw, expected):
+        request.session["guest_logged_in"] = True
+        request.session.pop("admin_logged_in", None)
+        return RedirectResponse(
+            url=admin_app_path(request, "/admin/requests"), status_code=302
         )
+    return templates.TemplateResponse(
+        request,
+        "admin_login.html",
+        {**admin_paths(request), "error": "아이디 또는 비밀번호가 잘못되었습니다."},
+    )
 
 
 @app.get("/admin/logout")
@@ -468,6 +509,9 @@ async def cron_daily_report(secret: str | None = None):
 @app.get("/admin/settings")
 async def admin_settings_get(request: Request):
     if not is_admin_logged_in(request):
+        if is_guest_logged_in(request):
+            base = admin_app_path(request, "/admin/requests")
+            return RedirectResponse(url=f"{base}?flash=guest_restricted", status_code=303)
         return RedirectResponse(
             url=admin_app_path(request, "/admin/login"), status_code=302
         )
@@ -494,6 +538,9 @@ async def admin_settings_get(request: Request):
 @app.post("/admin/settings")
 async def admin_settings_post(request: Request):
     if not is_admin_logged_in(request):
+        if is_guest_logged_in(request):
+            base = admin_app_path(request, "/admin/requests")
+            return RedirectResponse(url=f"{base}?flash=guest_restricted", status_code=303)
         return RedirectResponse(
             url=admin_app_path(request, "/admin/login"), status_code=302
         )
@@ -535,6 +582,9 @@ async def admin_settings_test_email_get(request: Request):
 @app.post("/admin/settings/test-email")
 async def admin_settings_test_email(request: Request):
     if not is_admin_logged_in(request):
+        if is_guest_logged_in(request):
+            base = admin_app_path(request, "/admin/requests")
+            return RedirectResponse(url=f"{base}?flash=guest_restricted", status_code=303)
         return RedirectResponse(
             url=admin_app_path(request, "/admin/login"), status_code=302
         )
@@ -554,7 +604,7 @@ async def admin_requests(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    if not is_admin_logged_in(request):
+    if not is_staff_logged_in(request):
         return RedirectResponse(
             url=admin_app_path(request, "/admin/login"), status_code=302
         )
@@ -619,6 +669,7 @@ async def admin_requests(
         "admin_requests.html",
         {
             **admin_paths(request),
+            "is_guest": is_guest_logged_in(request),
             "requests_list": requests_list,
             "RequestStatus": RequestStatus,
             "RequestType": RequestType,
@@ -657,7 +708,7 @@ async def admin_requests_export(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    if not is_admin_logged_in(request):
+    if not is_staff_logged_in(request):
         return RedirectResponse(
             url=admin_app_path(request, "/admin/login"), status_code=302
         )
@@ -770,7 +821,7 @@ async def _admin_apply_request_status(
     work_memo: str,
     db: AsyncSession,
 ) -> RedirectResponse:
-    if not is_admin_logged_in(request):
+    if not is_staff_logged_in(request):
         return RedirectResponse(
             url=admin_app_path(request, "/admin/login"), status_code=302
         )
@@ -877,6 +928,11 @@ async def admin_remove_request_row(
 ):
     """삭제도 동적 경로 대신 고정 POST + mr_id (세션·프록시 안정)."""
     if not is_admin_logged_in(request):
+        if is_guest_logged_in(request):
+            base = admin_app_path(request, "/admin/requests")
+            return RedirectResponse(
+                url=f"{base}?flash=guest_restricted", status_code=303
+            )
         return RedirectResponse(
             url=admin_app_path(request, "/admin/login"), status_code=302
         )
@@ -912,6 +968,11 @@ async def admin_delete_request(
     db: AsyncSession = Depends(get_db),
 ):
     if not is_admin_logged_in(request):
+        if is_guest_logged_in(request):
+            base = admin_app_path(request, "/admin/requests")
+            return RedirectResponse(
+                url=f"{base}?flash=guest_restricted", status_code=303
+            )
         return RedirectResponse(
             url=admin_app_path(request, "/admin/login"), status_code=302
         )

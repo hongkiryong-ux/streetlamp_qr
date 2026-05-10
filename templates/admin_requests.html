@@ -11,10 +11,15 @@
   {% if request.query_params.get('flash') == 'saved' %}
   <p class="flash-success" role="status">저장되었습니다.</p>
   {% endif %}
+  {% if request.query_params.get('flash') == 'guest_restricted' %}
+  <p class="flash-error" role="alert">게스트 계정은 해당 기능(설정·삭제)을 사용할 수 없습니다.</p>
+  {% endif %}
   <div class="admin-header">
     <h2>정비 의뢰 목록</h2>
     <div style="display:flex; gap:0.5rem;">
+      {% if not is_guest %}
       <a href="{{ path_settings }}" class="btn-secondary">설정</a>
+      {% endif %}
       <a href="{{ path_logout }}" class="btn-secondary">로그아웃</a>
     </div>
   </div>
@@ -111,7 +116,9 @@
           <th class="col-type">유형</th>
           <th class="col-content">내용</th>
           <th class="col-work-combined">작업비고</th>
+          {% if not is_guest %}
           <th class="col-action">삭제</th>
+          {% endif %}
         </tr>
       </thead>
       <tbody>
@@ -140,12 +147,14 @@
               </div>
             </form>
           </td>
+          {% if not is_guest %}
           <td class="col-action">
             <form action="{{ path_requests_remove }}" method="post" class="inline-form" onsubmit="return confirm('이 접수 건을 삭제할까요? 삭제 후에는 복구할 수 없습니다.');">
               <input type="hidden" name="mr_id" value="{{ r.id }}" />
               <button type="submit" class="btn-small btn-danger">삭제</button>
             </form>
           </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
