@@ -6,7 +6,7 @@
   {% if error %}
     <p class="error">{{ error }}</p>
   {% endif %}
-  <form action="/admin/login" method="post" class="form">
+  <form action="{{ path_login }}" method="post" class="form">
     <label>
       아이디
       <input type="text" name="admin_id" required />

@@ -353,16 +353,35 @@ def admin_app_path(request: Request, path: str) -> str:
     return f"{rp}{path}"
 
 
+def admin_paths(request: Request) -> dict[str, str]:
+    """관리자 템플릿 공통 링크·폼 action (하드코딩 /admin/... 금지)."""
+    return {
+        "path_login": admin_app_path(request, "/admin/login"),
+        "path_logout": admin_app_path(request, "/admin/logout"),
+        "path_requests_list": admin_app_path(request, "/admin/requests"),
+        "path_settings": admin_app_path(request, "/admin/settings"),
+        "path_settings_test_email": admin_app_path(request, "/admin/settings/test-email"),
+    }
+
+
+def _with_saved_flash(url: str) -> str:
+    """저장 직후 목록으로 돌아갈 때 한 번만 표시할 flash=saved 쿼리."""
+    if not url or "flash=saved" in url:
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}flash=saved"
+
+
 @app.get("/admin/login")
 async def admin_login_form(request: Request):
     if is_admin_logged_in(request):
         return RedirectResponse(
-            url=str(request.url_for("admin_requests_list")), status_code=302
+            url=admin_app_path(request, "/admin/requests"), status_code=302
         )
     return templates.TemplateResponse(
         request,
         "admin_login.html",
-        {},
+        {**admin_paths(request)},
     )
 
 
@@ -375,20 +394,22 @@ async def admin_login(
     if admin_id == ADMIN_ID and admin_pw == ADMIN_PW:
         request.session["admin_logged_in"] = True
         return RedirectResponse(
-            url=str(request.url_for("admin_requests_list")), status_code=302
+            url=admin_app_path(request, "/admin/requests"), status_code=302
         )
     else:
         return templates.TemplateResponse(
             request,
             "admin_login.html",
-            {"error": "아이디 또는 비밀번호가 잘못되었습니다."},
+            {**admin_paths(request), "error": "아이디 또는 비밀번호가 잘못되었습니다."},
         )
 
 
 @app.get("/admin/logout")
 async def admin_logout(request: Request):
     request.session.clear()
-    return RedirectResponse(url="/admin/login", status_code=302)
+    return RedirectResponse(
+        url=admin_app_path(request, "/admin/login"), status_code=302
+    )
 
 
 @app.get("/cron/daily-report")
@@ -417,7 +438,9 @@ async def cron_daily_report(secret: str | None = None):
 @app.get("/admin/settings")
 async def admin_settings_get(request: Request):
     if not is_admin_logged_in(request):
-        return RedirectResponse(url="/admin/login", status_code=302)
+        return RedirectResponse(
+            url=admin_app_path(request, "/admin/login"), status_code=302
+        )
     async with AsyncSessionLocal() as session:
         settings_map = await get_all_settings_map(session)
     base = public_base_url_for_ping()
@@ -428,6 +451,7 @@ async def admin_settings_get(request: Request):
         request,
         "admin_settings.html",
         {
+            **admin_paths(request),
             "settings": settings_map,
             "public_base_url": base,
             "cron_secret_set": cron_secret_set,
@@ -440,7 +464,9 @@ async def admin_settings_get(request: Request):
 @app.post("/admin/settings")
 async def admin_settings_post(request: Request):
     if not is_admin_logged_in(request):
-        return RedirectResponse(url="/admin/login", status_code=302)
+        return RedirectResponse(
+            url=admin_app_path(request, "/admin/login"), status_code=302
+        )
 
     form = await request.form()
     report_email = (form.get("report_email") or "").strip()
@@ -464,20 +490,33 @@ async def admin_settings_post(request: Request):
     scheduler = request.app.state.scheduler
     await reschedule_daily_report_job(scheduler)
 
-    return RedirectResponse(url="/admin/settings?saved=1", status_code=302)
+    base = admin_app_path(request, "/admin/settings")
+    return RedirectResponse(url=f"{base}?saved=1", status_code=302)
+
+
+@app.get("/admin/settings/test-email")
+async def admin_settings_test_email_get(request: Request):
+    """GET으로 열면 JSON 405 대신 설정 화면으로."""
+    return RedirectResponse(
+        url=admin_app_path(request, "/admin/settings"), status_code=302
+    )
 
 
 @app.post("/admin/settings/test-email")
 async def admin_settings_test_email(request: Request):
     if not is_admin_logged_in(request):
-        return RedirectResponse(url="/admin/login", status_code=302)
+        return RedirectResponse(
+            url=admin_app_path(request, "/admin/login"), status_code=302
+        )
     async with AsyncSessionLocal() as session:
         from settings_service import get_setting
 
         to_email = await get_setting(session, "report_email")
         msg = await run_daily_report_pipeline(session, to_email)
     request.session["admin_notice"] = msg
-    return RedirectResponse(url="/admin/settings", status_code=302)
+    return RedirectResponse(
+        url=admin_app_path(request, "/admin/settings"), status_code=302
+    )
 
 
 @app.get("/admin/requests", name="admin_requests_list")
@@ -486,7 +525,9 @@ async def admin_requests(
     db: AsyncSession = Depends(get_db),
 ):
     if not is_admin_logged_in(request):
-        return RedirectResponse(url="/admin/login", status_code=302)
+        return RedirectResponse(
+            url=admin_app_path(request, "/admin/login"), status_code=302
+        )
 
     q = (request.query_params.get("q") or "").strip()
     status_filter = (
@@ -547,6 +588,7 @@ async def admin_requests(
         request,
         "admin_requests.html",
         {
+            **admin_paths(request),
             "requests_list": requests_list,
             "RequestStatus": RequestStatus,
             "RequestType": RequestType,
@@ -562,7 +604,6 @@ async def admin_requests(
             "content": content,
             "request_type_filter": request_type_filter,
             "export_qs": export_qs,
-            "path_requests_list": admin_app_path(request, "/admin/requests"),
             "path_requests_export": admin_app_path(request, "/admin/requests/export"),
             "path_requests_update": admin_app_path(request, "/admin/requests/update"),
             "path_requests_remove": admin_app_path(
@@ -578,7 +619,9 @@ async def admin_requests_export(
     db: AsyncSession = Depends(get_db),
 ):
     if not is_admin_logged_in(request):
-        return RedirectResponse(url="/admin/login", status_code=302)
+        return RedirectResponse(
+            url=admin_app_path(request, "/admin/login"), status_code=302
+        )
 
     # 목록과 동일한 필터 로직
     q = (request.query_params.get("q") or "").strip()
@@ -714,9 +757,18 @@ async def _admin_apply_request_status(
     try:
         pr = urlparse(ref)
         if "/admin/requests" in pr.path:
-            return RedirectResponse(url=ref)
+            return RedirectResponse(url=_with_saved_flash(ref))
     except Exception:
         pass
+    return RedirectResponse(
+        url=_with_saved_flash(admin_app_path(request, "/admin/requests")),
+        status_code=302,
+    )
+
+
+@app.get("/admin/requests/update")
+async def admin_update_request_status_get(request: Request):
+    """GET으로 열면 JSON 405 대신 목록으로."""
     return RedirectResponse(
         url=admin_app_path(request, "/admin/requests"), status_code=302
     )
@@ -740,7 +792,7 @@ async def admin_update_request_status(
 async def update_request_status_get(request: Request, req_id: int):
     """실수·북마크·리다이렉트로 GET이 들어오면 JSON 405 대신 목록으로 보냄."""
     return RedirectResponse(
-        url=str(request.url_for("admin_requests_list")), status_code=302
+        url=admin_app_path(request, "/admin/requests"), status_code=302
     )
 
 
@@ -785,10 +837,12 @@ async def admin_remove_request_row(
     try:
         pr = urlparse(ref)
         if "/admin/requests" in pr.path:
-            return RedirectResponse(url=ref)
+            return RedirectResponse(url=_with_saved_flash(ref))
     except Exception:
         pass
-    return RedirectResponse(url=admin_app_path(request, "/admin/requests"))
+    return RedirectResponse(
+        url=_with_saved_flash(admin_app_path(request, "/admin/requests"))
+    )
 
 
 @app.post("/admin/requests/{req_id}/delete", name="admin_delete_request")
@@ -809,7 +863,9 @@ async def admin_delete_request(
     try:
         pr = urlparse(ref)
         if "/admin/requests" in pr.path:
-            return RedirectResponse(url=ref)
+            return RedirectResponse(url=_with_saved_flash(ref))
     except Exception:
         pass
-    return RedirectResponse(url=admin_app_path(request, "/admin/requests"))
+    return RedirectResponse(
+        url=_with_saved_flash(admin_app_path(request, "/admin/requests"))
+    )

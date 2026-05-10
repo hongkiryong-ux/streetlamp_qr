@@ -8,11 +8,14 @@
     (여러 서버·SQLite 사용 시 DB가 서로 다를 수 있습니다. 가능하면 PostgreSQL을 사용하세요.)
   </p>
   {% endif %}
+  {% if request.query_params.get('flash') == 'saved' %}
+  <p class="flash-success" role="status">저장되었습니다.</p>
+  {% endif %}
   <div class="admin-header">
     <h2>정비 의뢰 목록</h2>
     <div style="display:flex; gap:0.5rem;">
-      <a href="/admin/settings" class="btn-secondary">설정</a>
-      <a href="/admin/logout" class="btn-secondary">로그아웃</a>
+      <a href="{{ path_settings }}" class="btn-secondary">설정</a>
+      <a href="{{ path_logout }}" class="btn-secondary">로그아웃</a>
     </div>
   </div>
 
