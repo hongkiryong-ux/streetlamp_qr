@@ -116,7 +116,7 @@
       </thead>
       <tbody>
         {% for r in requests_list %}
-        <tr>
+        <tr id="admin-req-{{ r.id }}">
           <td class="col-narrow">{{ r.id }}</td>
           <td class="col-datetime nowrap">{{ r.created_at | fmt_kst_date }}</td>
           <td class="col-narrow">{{ r.lamp_id }}</td>
@@ -153,4 +153,43 @@
     </div>
   {% endif %}
 </section>
+<script>
+(function () {
+  var KEY_ID = "admin_req_scroll_id";
+  var KEY_Y = "admin_req_scroll_y";
+  document.addEventListener("DOMContentLoaded", function () {
+    var rid = sessionStorage.getItem(KEY_ID);
+    var sy = sessionStorage.getItem(KEY_Y);
+    sessionStorage.removeItem(KEY_ID);
+    sessionStorage.removeItem(KEY_Y);
+    function restore() {
+      if (rid) {
+        var row = document.getElementById("admin-req-" + rid);
+        if (row) {
+          row.scrollIntoView({ block: "center", behavior: "auto" });
+          try {
+            var ta = row.querySelector("textarea[name='mr_work_memo']");
+            if (ta) ta.focus({ preventScroll: true });
+          } catch (e) {}
+          return;
+        }
+      }
+      if (sy !== null && sy !== "") {
+        var y = parseInt(sy, 10);
+        if (!isNaN(y)) window.scrollTo(0, y);
+      }
+    }
+    requestAnimationFrame(function () {
+      requestAnimationFrame(restore);
+    });
+  });
+  document.querySelectorAll("form.status-memo-form").forEach(function (form) {
+    form.addEventListener("submit", function () {
+      var hid = form.querySelector('input[name="mr_id"]');
+      if (hid && hid.value) sessionStorage.setItem(KEY_ID, hid.value);
+      sessionStorage.setItem(KEY_Y, String(window.scrollY));
+    });
+  });
+})();
+</script>
 {% endblock %}
