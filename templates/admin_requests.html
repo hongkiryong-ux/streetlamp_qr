@@ -96,63 +96,52 @@
   {% if requests_list|length == 0 %}
     <p>조건에 맞는 정비 의뢰가 없습니다.</p>
   {% else %}
-    <table class="table">
+    <div class="admin-table-wrap">
+    <table class="table admin-requests-table">
       <thead>
         <tr>
-          <th>ID</th>
-          <th>접수일시(KST)</th>
-          <th>가로등</th>
-          <th>이름</th>
-          <th>전화번호</th>
-          <th>유형</th>
-          <th>내용</th>
-          <th>상태</th>
-          <th>작업비고</th>
-          <th>처리·비고 입력</th>
-          <th>삭제</th>
+          <th class="col-narrow">ID</th>
+          <th class="col-datetime">접수일시(KST)</th>
+          <th class="col-narrow">가로등</th>
+          <th class="col-name">이름</th>
+          <th class="col-phone">전화번호</th>
+          <th class="col-type">유형</th>
+          <th class="col-content">내용</th>
+          <th class="col-narrow">상태</th>
+          <th class="col-memo-saved">작업비고</th>
+          <th class="col-work-input">작업 내용</th>
+          <th class="col-action">삭제</th>
         </tr>
       </thead>
       <tbody>
         {% for r in requests_list %}
         <tr>
-          <td>{{ r.id }}</td>
-          <td>{{ r.created_at | fmt_kst }}</td>
-          <td>{{ r.lamp_id }}</td>
-          <td>{{ r.name }}</td>
-          <td>{{ r.phone }}</td>
-          <td>{{ RequestTypeLabel[r.request_type.value] }}</td>
-          <td>{{ r.content or "" }}</td>
-          <td>{{ RequestStatusLabel[r.status.value] }}</td>
-          <td style="max-width:14rem; white-space:pre-wrap; word-break:break-word;">{{ r.work_memo or "—" }}</td>
+          <td class="col-narrow">{{ r.id }}</td>
+          <td class="col-datetime nowrap">{{ r.created_at | fmt_kst }}</td>
+          <td class="col-narrow">{{ r.lamp_id }}</td>
+          <td class="col-name ellipsis" title="{{ r.name }}">{{ r.name }}</td>
+          <td class="col-phone nowrap">{{ r.phone }}</td>
+          <td class="col-type ellipsis" title="{{ RequestTypeLabel[r.request_type.value] }}">{{ RequestTypeLabel[r.request_type.value] }}</td>
+          <td class="col-content ellipsis" title="{{ r.content or '' }}">{{ r.content or "" }}</td>
+          <td class="col-narrow nowrap">{{ RequestStatusLabel[r.status.value] }}</td>
+          <td class="col-memo-saved memo-saved-cell" title="{{ r.work_memo or '' }}">{{ r.work_memo or "—" }}</td>
           <td class="status-memo-combined">
-            {# 한 폼 안에 상태·비고를 넣어 POST 대상·필드 누락·form 속성 미지원 브라우저 이슈 방지 #}
             <form method="post" action="{{ path_requests_update }}" class="status-memo-form">
               <input type="hidden" name="mr_id" value="{{ r.id }}" />
-              <div class="status-memo-grid">
-                <div class="status-memo-controls">
-                  <select name="mr_status">
-                    <option value="{{ RequestStatus.received.value }}" {% if r.status == RequestStatus.received %}selected{% endif %}>
-                      접수
-                    </option>
-                    <option value="{{ RequestStatus.in_progress.value }}" {% if r.status == RequestStatus.in_progress %}selected{% endif %}>
-                      처리중
-                    </option>
-                    <option value="{{ RequestStatus.done.value }}" {% if r.status == RequestStatus.done %}selected{% endif %}>
-                      완료
-                    </option>
+              <div class="status-memo-stack">
+                <textarea name="mr_work_memo" class="work-memo-textarea" rows="2" placeholder="완료 시 작업 내용을 입력하세요.">{{ r.work_memo or "" }}</textarea>
+                <div class="status-memo-controls-row">
+                  <select name="mr_status" class="mr-status-select" aria-label="처리 상태">
+                    <option value="{{ RequestStatus.received.value }}" {% if r.status == RequestStatus.received %}selected{% endif %}>접수</option>
+                    <option value="{{ RequestStatus.in_progress.value }}" {% if r.status == RequestStatus.in_progress %}selected{% endif %}>처리중</option>
+                    <option value="{{ RequestStatus.done.value }}" {% if r.status == RequestStatus.done %}selected{% endif %}>완료</option>
                   </select>
                   <button type="submit" class="btn-small">변경</button>
-                </div>
-                <div class="status-memo-text">
-                  <label class="work-memo-label">
-                    완료 시 작업·비고
-                    <textarea name="mr_work_memo" rows="3" placeholder="완료로 바꿀 때 작업 내용을 적어 주세요.">{{ r.work_memo or "" }}</textarea>
-                  </label>
                 </div>
               </div>
             </form>
           </td>
-          <td>
+          <td class="col-action">
             <form action="{{ path_requests_remove }}" method="post" class="inline-form" onsubmit="return confirm('이 접수 건을 삭제할까요? 삭제 후에는 복구할 수 없습니다.');">
               <input type="hidden" name="mr_id" value="{{ r.id }}" />
               <button type="submit" class="btn-small btn-danger">삭제</button>
@@ -162,6 +151,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
   {% endif %}
 </section>
 {% endblock %}
