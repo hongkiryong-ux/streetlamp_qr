@@ -541,6 +541,9 @@ async def admin_requests(
             "content": content,
             "request_type_filter": request_type_filter,
             "export_qs": export_qs,
+            "status_update_url": str(
+                request.url_for("admin_update_request_status")
+            ),
         },
     )
 
@@ -650,22 +653,13 @@ async def admin_requests_export(
     )
 
 
-@app.get("/admin/requests/{req_id}/status")
-async def update_request_status_get(request: Request, req_id: int):
-    """실수·북마크·리다이렉트로 GET이 들어오면 JSON 405 대신 목록으로 보냄."""
-    return RedirectResponse(
-        url=str(request.url_for("admin_requests_list")), status_code=302
-    )
-
-
-@app.post("/admin/requests/{req_id}/status", name="update_request_status")
-async def update_request_status(
+async def _admin_apply_request_status(
     request: Request,
     req_id: int,
-    status: RequestStatus = Form(...),
-    work_memo: str = Form(""),
-    db: AsyncSession = Depends(get_db),
-):
+    status: RequestStatus,
+    work_memo: str,
+    db: AsyncSession,
+) -> RedirectResponse:
     if not is_admin_logged_in(request):
         return RedirectResponse(url="/admin/login", status_code=302)
 
@@ -694,6 +688,41 @@ async def update_request_status(
         pass
     return RedirectResponse(
         url=str(request.url_for("admin_requests_list")), status_code=302
+    )
+
+
+@app.post("/admin/requests/update", name="admin_update_request_status")
+async def admin_update_request_status(
+    request: Request,
+    req_id: int = Form(...),
+    status: RequestStatus = Form(...),
+    work_memo: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    """상태 변경(프록시·CDN에서 동적 경로 POST가 깨질 때 고정 URL로 처리)."""
+    return await _admin_apply_request_status(
+        request, req_id, status, work_memo, db
+    )
+
+
+@app.get("/admin/requests/{req_id}/status")
+async def update_request_status_get(request: Request, req_id: int):
+    """실수·북마크·리다이렉트로 GET이 들어오면 JSON 405 대신 목록으로 보냄."""
+    return RedirectResponse(
+        url=str(request.url_for("admin_requests_list")), status_code=302
+    )
+
+
+@app.post("/admin/requests/{req_id}/status", name="update_request_status")
+async def update_request_status(
+    request: Request,
+    req_id: int,
+    status: RequestStatus = Form(...),
+    work_memo: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _admin_apply_request_status(
+        request, req_id, status, work_memo, db
     )
 
 

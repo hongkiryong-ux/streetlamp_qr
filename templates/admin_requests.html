@@ -120,7 +120,8 @@
           <td style="max-width:14rem; white-space:pre-wrap; word-break:break-word;">{{ r.work_memo or "—" }}</td>
           <td class="status-memo-combined">
             {# 한 폼 안에 상태·비고를 넣어 POST 대상·필드 누락·form 속성 미지원 브라우저 이슈 방지 #}
-            <form method="post" action="{{ request.url_for('update_request_status', req_id=r.id) }}" class="status-memo-form">
+            <form method="post" action="{{ status_update_url }}" class="status-memo-form">
+              <input type="hidden" name="req_id" value="{{ r.id }}" />
               <div class="status-memo-grid">
                 <div class="status-memo-controls">
                   <select name="status">
