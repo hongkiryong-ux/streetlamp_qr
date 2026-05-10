@@ -359,6 +359,10 @@ def admin_paths(request: Request) -> dict[str, str]:
         "path_login": admin_app_path(request, "/admin/login"),
         "path_logout": admin_app_path(request, "/admin/logout"),
         "path_requests_list": admin_app_path(request, "/admin/requests"),
+        "path_requests_export": admin_app_path(request, "/admin/requests/export"),
+        "path_requests_update": admin_app_path(request, "/admin/requests/update"),
+        "path_requests_save_update": admin_app_path(request, "/admin/requests/save-update"),
+        "path_requests_remove": admin_app_path(request, "/admin/requests/remove-row"),
         "path_settings": admin_app_path(request, "/admin/settings"),
         "path_settings_test_email": admin_app_path(request, "/admin/settings/test-email"),
     }
@@ -604,11 +608,6 @@ async def admin_requests(
             "content": content,
             "request_type_filter": request_type_filter,
             "export_qs": export_qs,
-            "path_requests_export": admin_app_path(request, "/admin/requests/export"),
-            "path_requests_update": admin_app_path(request, "/admin/requests/update"),
-            "path_requests_remove": admin_app_path(
-                request, "/admin/requests/remove-row"
-            ),
         },
     )
 
@@ -783,6 +782,27 @@ async def admin_update_request_status(
     db: AsyncSession = Depends(get_db),
 ):
     """상태 변경. 필드명 mr_* 는 검색 폼의 status 등과 겹치지 않도록 고유 접두사."""
+    return await _admin_apply_request_status(
+        request, mr_id, mr_status, mr_work_memo, db
+    )
+
+
+@app.get("/admin/requests/save-update")
+async def admin_requests_save_update_get(request: Request):
+    return RedirectResponse(
+        url=admin_app_path(request, "/admin/requests"), status_code=302
+    )
+
+
+@app.post("/admin/requests/save-update")
+async def admin_requests_save_update(
+    request: Request,
+    mr_id: int = Form(...),
+    mr_status: RequestStatus = Form(...),
+    mr_work_memo: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    """`/admin/requests/update` 와 동일(프록시·캐시 이슈 시 대체 URL)."""
     return await _admin_apply_request_status(
         request, mr_id, mr_status, mr_work_memo, db
     )
