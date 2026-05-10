@@ -743,12 +743,15 @@ async def _admin_apply_request_status(
         base = admin_app_path(request, "/admin/requests")
         return RedirectResponse(url=f"{base}?flash=nosuchrequest", status_code=302)
 
+    memo = (work_memo or "").strip()
     req_obj.status = status
-    if status == RequestStatus.done:
-        memo = (work_memo or "").strip()
-        req_obj.work_memo = memo if memo else None
-    else:
+    # 비고는 상태와 무관하게 입력하면 저장 (접수/처리중만 두고 글만 적어도 유지)
+    if memo:
+        req_obj.work_memo = memo
+    elif status == RequestStatus.done:
+        # 완료인데 비고를 비운 경우만 DB 비고 삭제
         req_obj.work_memo = None
+    # 비고 비움 + 접수/처리중 → 기존 work_memo 유지 (덮어쓰지 않음)
 
     await db.commit()
 

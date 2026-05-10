@@ -125,7 +125,7 @@
           <td class="col-type ellipsis" title="{{ RequestTypeLabel[r.request_type.value] }}">{{ RequestTypeLabel[r.request_type.value] }}</td>
           <td class="col-content ellipsis" title="{{ r.content or '' }}">{{ r.content or "" }}</td>
           <td class="col-work-combined status-memo-combined">
-            <form method="post" action="{{ path_requests_save_update }}" class="status-memo-form js-admin-row-save" data-post-url="{{ path_requests_save_update }}" data-post-url-alt="{{ path_requests_update }}">
+            <form method="post" action="{{ path_requests_save_update }}" class="status-memo-form" enctype="application/x-www-form-urlencoded">
               <input type="hidden" name="mr_id" value="{{ r.id }}" />
               <div class="status-memo-stack">
                 <div class="status-memo-controls-row">
@@ -136,7 +136,7 @@
                   </select>
                   <button type="submit" class="btn-small">변경</button>
                 </div>
-                <textarea name="mr_work_memo" class="work-memo-textarea" rows="2" placeholder="작업·비고 입력 (완료 시 저장)">{{ r.work_memo or "" }}</textarea>
+                <textarea name="mr_work_memo" class="work-memo-textarea" rows="2" placeholder="작업·비고 입력 후 변경 저장">{{ r.work_memo or "" }}</textarea>
               </div>
             </form>
           </td>
@@ -153,32 +153,4 @@
     </div>
   {% endif %}
 </section>
-<script>
-(function () {
-  var primary = {{ path_requests_save_update | tojson }};
-  var alt = {{ path_requests_update | tojson }};
-  document.querySelectorAll("form.js-admin-row-save").forEach(function (form) {
-    form.addEventListener("submit", function (e) {
-      e.preventDefault();
-      var url = form.getAttribute("action") || primary;
-      if (!url || url === "#") url = primary;
-      var fd = new FormData(form);
-      fetch(url, { method: "POST", body: fd, credentials: "same-origin", redirect: "follow" })
-        .then(function (res) {
-          window.location.href = res.url;
-        })
-        .catch(function () {
-          fetch(alt, { method: "POST", body: fd, credentials: "same-origin", redirect: "follow" })
-            .then(function (res2) {
-              window.location.href = res2.url;
-            })
-            .catch(function () {
-              form.action = primary;
-              form.submit();
-            });
-        });
-    });
-  });
-})();
-</script>
 {% endblock %}
