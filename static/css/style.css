@@ -112,6 +112,15 @@ body {
   background-color: #f0f0f0;
 }
 
+.flash-error {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  color: #664d03;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
 .admin-header {
   display: flex;
   justify-content: space-between;

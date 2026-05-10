@@ -230,7 +230,7 @@ def _admin_export_query_string(
     if (q or "").strip():
         params["q"] = q.strip()
     if (status_filter or "").strip():
-        params["status"] = status_filter.strip()
+        params["filter_status"] = status_filter.strip()
     if (date_from or "").strip():
         params["date_from"] = date_from.strip()
     if (date_to or "").strip():
@@ -472,7 +472,11 @@ async def admin_requests(
         return RedirectResponse(url="/admin/login", status_code=302)
 
     q = (request.query_params.get("q") or "").strip()
-    status_filter = (request.query_params.get("status") or "").strip()
+    status_filter = (
+        request.query_params.get("filter_status")
+        or request.query_params.get("status")
+        or ""
+    ).strip()
     date_from = (request.query_params.get("date_from") or "").strip()
     date_to = (request.query_params.get("date_to") or "").strip()
     lamp_id = (request.query_params.get("lamp_id") or "").strip()
@@ -558,7 +562,11 @@ async def admin_requests_export(
 
     # 목록과 동일한 필터 로직
     q = (request.query_params.get("q") or "").strip()
-    status_filter = (request.query_params.get("status") or "").strip()
+    status_filter = (
+        request.query_params.get("filter_status")
+        or request.query_params.get("status")
+        or ""
+    ).strip()
     date_from = (request.query_params.get("date_from") or "").strip()
     date_to = (request.query_params.get("date_to") or "").strip()
     lamp_id = (request.query_params.get("lamp_id") or "").strip()
@@ -668,7 +676,13 @@ async def _admin_apply_request_status(
     )
     req_obj = result.scalar_one_or_none()
     if not req_obj:
-        raise HTTPException(status_code=404, detail="요청을 찾을 수 없습니다.")
+        # JSON 대신 목록으로 보내기(브라우저에서 {"detail":...} 노출 방지)
+        base = str(request.url_for("admin_requests_list"))
+        sep = "&" if "?" in base else "?"
+        return RedirectResponse(
+            url=f"{base}{sep}flash=nosuchrequest",
+            status_code=302,
+        )
 
     req_obj.status = status
     if status == RequestStatus.done:
@@ -694,14 +708,14 @@ async def _admin_apply_request_status(
 @app.post("/admin/requests/update", name="admin_update_request_status")
 async def admin_update_request_status(
     request: Request,
-    req_id: int = Form(...),
-    status: RequestStatus = Form(...),
-    work_memo: str = Form(""),
+    mr_id: int = Form(...),
+    mr_status: RequestStatus = Form(...),
+    mr_work_memo: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
-    """상태 변경(프록시·CDN에서 동적 경로 POST가 깨질 때 고정 URL로 처리)."""
+    """상태 변경. 필드명 mr_* 는 검색 폼의 status 등과 겹치지 않도록 고유 접두사."""
     return await _admin_apply_request_status(
-        request, req_id, status, work_memo, db
+        request, mr_id, mr_status, mr_work_memo, db
     )
 
 

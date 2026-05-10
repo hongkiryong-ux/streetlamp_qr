@@ -2,6 +2,12 @@
 
 {% block content %}
 <section class="card">
+  {% if request.query_params.get('flash') == 'nosuchrequest' %}
+  <p class="flash-error" role="alert">
+    해당 접수 건을 찾을 수 없습니다. 검색 조건을 바꾼 뒤 목록을 새로고침하고 다시 시도해 주세요.
+    (여러 서버·SQLite 사용 시 DB가 서로 다를 수 있습니다. 가능하면 PostgreSQL을 사용하세요.)
+  </p>
+  {% endif %}
   <div class="admin-header">
     <h2>정비 의뢰 목록</h2>
     <div style="display:flex; gap:0.5rem;">
@@ -70,7 +76,7 @@
       <div class="filter-row">
         <label>
           처리 상태
-          <select name="status">
+          <select name="filter_status">
             <option value="" {% if not status_filter %}selected{% endif %}>전체 (접수·처리중·완료 모두)</option>
             <option value="{{ RequestStatus.received.value }}" {% if status_filter == RequestStatus.received.value %}selected{% endif %}>접수</option>
             <option value="{{ RequestStatus.in_progress.value }}" {% if status_filter == RequestStatus.in_progress.value %}selected{% endif %}>처리중</option>
@@ -121,10 +127,10 @@
           <td class="status-memo-combined">
             {# 한 폼 안에 상태·비고를 넣어 POST 대상·필드 누락·form 속성 미지원 브라우저 이슈 방지 #}
             <form method="post" action="{{ status_update_url }}" class="status-memo-form">
-              <input type="hidden" name="req_id" value="{{ r.id }}" />
+              <input type="hidden" name="mr_id" value="{{ r.id }}" />
               <div class="status-memo-grid">
                 <div class="status-memo-controls">
-                  <select name="status">
+                  <select name="mr_status">
                     <option value="{{ RequestStatus.received.value }}" {% if r.status == RequestStatus.received %}selected{% endif %}>
                       접수
                     </option>
@@ -140,7 +146,7 @@
                 <div class="status-memo-text">
                   <label class="work-memo-label">
                     완료 시 작업·비고
-                    <textarea name="work_memo" rows="3" placeholder="완료로 바꿀 때 작업 내용을 적어 주세요.">{{ r.work_memo or "" }}</textarea>
+                    <textarea name="mr_work_memo" rows="3" placeholder="완료로 바꿀 때 작업 내용을 적어 주세요.">{{ r.work_memo or "" }}</textarea>
                   </label>
                 </div>
               </div>
