@@ -80,6 +80,18 @@ body {
   font-size: 0.8rem;
 }
 
+.btn-danger {
+  background-color: #c62828;
+  color: #fff;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+.btn-danger:hover {
+  background-color: #9a1e1e;
+}
+
 .error {
   color: red;
 }

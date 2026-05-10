@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from sqlalchemy import select, or_, func, cast, String
+from sqlalchemy import select, delete, or_, func, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -26,7 +26,7 @@ import os
 from io import BytesIO
 from datetime import datetime, timezone, date, time
 from zoneinfo import ZoneInfo
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import openpyxl
 
@@ -118,7 +118,6 @@ def _parse_date_yyyy_mm_dd(s: str) -> date | None:
 
 
 def _admin_requests_select(
-    include_done: bool,
     status_filter: str,
     q: str,
     *,
@@ -138,19 +137,7 @@ def _admin_requests_select(
     content_s = (content or "").strip()
     lamp_s = (lamp_id or "").strip()
 
-    # 어떤 조건이라도 걸면 '전체+미완료만' 기본 숨김을 해제(세부 검색·기간 검색 시 완료도 포함)
-    has_active_filters = bool(
-        q_strip
-        or name_s
-        or phone_s
-        or content_s
-        or lamp_s
-        or (date_from or "").strip()
-        or (date_to or "").strip()
-        or (request_type_filter or "").strip()
-    )
-
-    # 상태 필터가 있으면 해당 상태만 (완료만 보기 등)
+    # 처리 상태: 값이 있으면 해당 상태만, 비어 있으면 전체(접수·처리중·완료 모두 표시)
     if status_filter:
         try:
             stmt = stmt.where(
@@ -158,10 +145,6 @@ def _admin_requests_select(
             )
         except ValueError:
             pass
-    else:
-        # 전체: 기본은 완료(done) 제외. 필터/검색이 없을 때만.
-        if not include_done and not has_active_filters:
-            stmt = stmt.where(MaintenanceRequest.status != RequestStatus.done)
 
     # 접수 기간 (입력일은 KST 달력 기준, DB는 naive UTC로 저장된 값과 비교)
     kst = ZoneInfo("Asia/Seoul")
@@ -227,7 +210,6 @@ def _admin_export_query_string(
     *,
     q: str,
     status_filter: str,
-    include_done: bool,
     date_from: str,
     date_to: str,
     lamp_id: str,
@@ -241,8 +223,6 @@ def _admin_export_query_string(
         params["q"] = q.strip()
     if (status_filter or "").strip():
         params["status"] = status_filter.strip()
-    if include_done:
-        params["include_done"] = "on"
     if (date_from or "").strip():
         params["date_from"] = date_from.strip()
     if (date_to or "").strip():
@@ -480,12 +460,6 @@ async def admin_requests(
         return RedirectResponse(url="/admin/login", status_code=302)
 
     q = (request.query_params.get("q") or "").strip()
-    include_done = (request.query_params.get("include_done") or "").lower() in (
-        "1",
-        "true",
-        "on",
-        "yes",
-    )
     status_filter = (request.query_params.get("status") or "").strip()
     date_from = (request.query_params.get("date_from") or "").strip()
     date_to = (request.query_params.get("date_to") or "").strip()
@@ -496,7 +470,6 @@ async def admin_requests(
     request_type_filter = (request.query_params.get("request_type") or "").strip()
 
     stmt = _admin_requests_select(
-        include_done,
         status_filter,
         q,
         date_from=date_from,
@@ -528,7 +501,6 @@ async def admin_requests(
     export_qs = _admin_export_query_string(
         q=q,
         status_filter=status_filter,
-        include_done=include_done,
         date_from=date_from,
         date_to=date_to,
         lamp_id=lamp_id,
@@ -548,7 +520,6 @@ async def admin_requests(
             "RequestTypeLabel": RequestTypeLabel,
             "RequestStatusLabel": RequestStatusLabel,
             "q": q,
-            "include_done": include_done,
             "status_filter": status_filter,
             "date_from": date_from,
             "date_to": date_to,
@@ -572,12 +543,6 @@ async def admin_requests_export(
 
     # 목록과 동일한 필터 로직
     q = (request.query_params.get("q") or "").strip()
-    include_done = (request.query_params.get("include_done") or "").lower() in (
-        "1",
-        "true",
-        "on",
-        "yes",
-    )
     status_filter = (request.query_params.get("status") or "").strip()
     date_from = (request.query_params.get("date_from") or "").strip()
     date_to = (request.query_params.get("date_to") or "").strip()
@@ -588,7 +553,6 @@ async def admin_requests_export(
     request_type_filter = (request.query_params.get("request_type") or "").strip()
 
     stmt = _admin_requests_select(
-        include_done,
         status_filter,
         q,
         date_from=date_from,
@@ -693,3 +657,25 @@ async def update_request_status(
     await db.commit()
 
     return RedirectResponse(url="/admin/requests", status_code=302)
+
+
+@app.post("/admin/requests/{req_id}/delete")
+async def admin_delete_request(
+    request: Request,
+    req_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    if not is_admin_logged_in(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+
+    await db.execute(delete(MaintenanceRequest).where(MaintenanceRequest.id == req_id))
+    await db.commit()
+
+    ref = (request.headers.get("referer") or "").strip()
+    try:
+        pr = urlparse(ref)
+        if pr.path.startswith("/admin/requests") and pr.hostname == request.url.hostname:
+            return RedirectResponse(url=ref)
+    except Exception:
+        pass
+    return RedirectResponse(url="/admin/requests")
