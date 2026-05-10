@@ -530,7 +530,6 @@ async def admin_requests(
             "content": content,
             "request_type_filter": request_type_filter,
             "export_qs": export_qs,
-            "url_for": request.url_for,
         },
     )
 
