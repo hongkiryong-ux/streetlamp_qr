@@ -38,7 +38,7 @@ def main() -> int:
     assert login.status_code == 302, login.text
 
     up = client.post(
-        "/admin/requests/update",
+        "/admin/requests",
         data={
             "mr_id": str(mr_id),
             "mr_status": RequestStatus.done.value,

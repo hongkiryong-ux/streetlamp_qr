@@ -612,6 +612,20 @@ async def admin_requests(
     )
 
 
+@app.post("/admin/requests", name="admin_requests_row_save")
+async def admin_requests_row_save(
+    request: Request,
+    mr_id: int = Form(...),
+    mr_status: RequestStatus = Form(...),
+    mr_work_memo: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+):
+    """목록 GET과 같은 URL로 POST → 폼 action이 목록과 항상 일치해 405 방지."""
+    return await _admin_apply_request_status(
+        request, mr_id, mr_status, mr_work_memo, db
+    )
+
+
 @app.get("/admin/requests/export", name="admin_requests_export")
 async def admin_requests_export(
     request: Request,

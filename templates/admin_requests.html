@@ -125,7 +125,7 @@
           <td class="col-type ellipsis" title="{{ RequestTypeLabel[r.request_type.value] }}">{{ RequestTypeLabel[r.request_type.value] }}</td>
           <td class="col-content ellipsis" title="{{ r.content or '' }}">{{ r.content or "" }}</td>
           <td class="col-work-combined status-memo-combined">
-            <form method="post" action="{{ path_requests_save_update }}" class="status-memo-form" enctype="application/x-www-form-urlencoded">
+            <form method="post" action="{{ path_requests_list }}" class="status-memo-form" enctype="application/x-www-form-urlencoded">
               <input type="hidden" name="mr_id" value="{{ r.id }}" />
               <div class="status-memo-stack">
                 <div class="status-memo-controls-row">
