@@ -109,7 +109,13 @@ def _fmt_kst_date(dt: datetime | None) -> str:
 
 # 세션용 (관리자 로그인, 간단하게)
 SECRET_KEY = os.environ.get("APP_SECRET_KEY", "change_this_secret_in_prod")
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+_session_kw: dict = {"secret_key": SECRET_KEY, "same_site": "lax"}
+# Render 등 HTTPS 뒤에서는 Secure 쿠키(https_only)를 켜야 세션이 유지되고 로그인↔목록 리다이렉트 루프를 막을 수 있음
+if os.environ.get("RENDER", "").lower() in ("true", "1", "yes") or os.environ.get(
+    "COOKIE_HTTPS_ONLY", ""
+).lower() in ("1", "true", "yes"):
+    _session_kw["https_only"] = True
+app.add_middleware(SessionMiddleware, **_session_kw)
 
 try:
     from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
@@ -374,6 +380,26 @@ def _with_saved_flash(url: str) -> str:
         return url
     sep = "&" if "?" in url else "?"
     return f"{url}{sep}flash=saved"
+
+
+def _safe_admin_requests_referer(request: Request, referer: str) -> str | None:
+    """Referer 기반 리다이렉트: 같은 호스트·목록 경로만 허용 (오픈 리다이렉트·과다 리다이렉트 방지)."""
+    referer = (referer or "").strip()
+    if not referer:
+        return None
+    try:
+        pr = urlparse(referer)
+        req_host = (request.url.hostname or "").lower()
+        ref_host = (pr.hostname or "").lower()
+        if req_host and ref_host and ref_host != req_host:
+            return None
+        list_path = admin_app_path(request, "/admin/requests").rstrip("/") or "/"
+        path = (pr.path or "").rstrip("/") or "/"
+        if path != list_path:
+            return None
+        return referer
+    except Exception:
+        return None
 
 
 @app.get("/admin/login")
@@ -770,15 +796,12 @@ async def _admin_apply_request_status(
     await db.commit()
 
     ref = (request.headers.get("referer") or "").strip()
-    try:
-        pr = urlparse(ref)
-        if "/admin/requests" in pr.path:
-            return RedirectResponse(url=_with_saved_flash(ref))
-    except Exception:
-        pass
+    safe_ref = _safe_admin_requests_referer(request, ref)
+    if safe_ref:
+        return RedirectResponse(url=_with_saved_flash(safe_ref), status_code=303)
     return RedirectResponse(
         url=_with_saved_flash(admin_app_path(request, "/admin/requests")),
-        status_code=302,
+        status_code=303,
     )
 
 
