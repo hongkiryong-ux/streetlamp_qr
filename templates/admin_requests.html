@@ -10,7 +10,7 @@
     </div>
   </div>
 
-  <form method="get" action="/admin/requests" class="form admin-filter-form">
+  <form method="get" action="{{ request.url_for('admin_requests_list') }}" class="form admin-filter-form">
     <fieldset class="filter-fieldset">
       <legend>접수 기간 (KST 기준)</legend>
       <div class="filter-row">
@@ -82,8 +82,8 @@
 
     <div class="filter-actions">
       <button type="submit" class="btn-primary" style="width:auto;">검색 적용</button>
-      <a class="btn-secondary" href="/admin/requests">조건 초기화</a>
-      <a class="btn-secondary" href="/admin/requests/export{% if export_qs %}?{{ export_qs }}{% endif %}">엑셀 다운로드 (현재 조건)</a>
+      <a class="btn-secondary" href="{{ request.url_for('admin_requests_list') }}">조건 초기화</a>
+      <a class="btn-secondary" href="{{ request.url_for('admin_requests_export') }}{% if export_qs %}?{{ export_qs }}{% endif %}">엑셀 다운로드 (현재 조건)</a>
     </div>
   </form>
 
@@ -102,14 +102,11 @@
           <th>내용</th>
           <th>상태</th>
           <th>작업비고</th>
-          <th>처리</th>
-          <th>비고 입력</th>
+          <th>처리·비고 입력</th>
           <th>삭제</th>
         </tr>
       </thead>
       <tbody>
-        {# root_path: 리버스 프록시 하위 경로 배포 시 필수. action 비면 POST가 현재 목록 URL로 가서 405 발생 #}
-        {% set rp = (request.scope.get('root_path') or '').rstrip('/') %}
         {% for r in requests_list %}
         <tr>
           <td>{{ r.id }}</td>
@@ -121,30 +118,35 @@
           <td>{{ r.content or "" }}</td>
           <td>{{ RequestStatusLabel[r.status.value] }}</td>
           <td style="max-width:14rem; white-space:pre-wrap; word-break:break-word;">{{ r.work_memo or "—" }}</td>
-          <td>
-            <form id="status-form-{{ r.id }}" action="{{ rp }}/admin/requests/{{ r.id }}/status" method="post" class="inline-form">
-              <select name="status">
-                <option value="{{ RequestStatus.received.value }}" {% if r.status == RequestStatus.received %}selected{% endif %}>
-                  접수
-                </option>
-                <option value="{{ RequestStatus.in_progress.value }}" {% if r.status == RequestStatus.in_progress %}selected{% endif %}>
-                  처리중
-                </option>
-                <option value="{{ RequestStatus.done.value }}" {% if r.status == RequestStatus.done %}selected{% endif %}>
-                  완료
-                </option>
-              </select>
-              <button type="submit" class="btn-small">변경</button>
+          <td class="status-memo-combined">
+            {# 한 폼 안에 상태·비고를 넣어 POST 대상·필드 누락·form 속성 미지원 브라우저 이슈 방지 #}
+            <form method="post" action="{{ request.url_for('update_request_status', req_id=r.id) }}" class="status-memo-form">
+              <div class="status-memo-grid">
+                <div class="status-memo-controls">
+                  <select name="status">
+                    <option value="{{ RequestStatus.received.value }}" {% if r.status == RequestStatus.received %}selected{% endif %}>
+                      접수
+                    </option>
+                    <option value="{{ RequestStatus.in_progress.value }}" {% if r.status == RequestStatus.in_progress %}selected{% endif %}>
+                      처리중
+                    </option>
+                    <option value="{{ RequestStatus.done.value }}" {% if r.status == RequestStatus.done %}selected{% endif %}>
+                      완료
+                    </option>
+                  </select>
+                  <button type="submit" class="btn-small">변경</button>
+                </div>
+                <div class="status-memo-text">
+                  <label class="work-memo-label">
+                    완료 시 작업·비고
+                    <textarea name="work_memo" rows="3" placeholder="완료로 바꿀 때 작업 내용을 적어 주세요.">{{ r.work_memo or "" }}</textarea>
+                  </label>
+                </div>
+              </div>
             </form>
           </td>
-          <td class="memo-input-cell">
-            <label class="work-memo-label">
-              완료 시 작업·비고
-              <textarea name="work_memo" form="status-form-{{ r.id }}" rows="3" cols="24" placeholder="완료로 바꿀 때 작업 내용을 적어 주세요.">{{ r.work_memo or "" }}</textarea>
-            </label>
-          </td>
           <td>
-            <form action="{{ rp }}/admin/requests/{{ r.id }}/delete" method="post" class="inline-form" onsubmit="return confirm('이 접수 건을 삭제할까요? 삭제 후에는 복구할 수 없습니다.');">
+            <form action="{{ request.url_for('admin_delete_request', req_id=r.id) }}" method="post" class="inline-form" onsubmit="return confirm('이 접수 건을 삭제할까요? 삭제 후에는 복구할 수 없습니다.');">
               <button type="submit" class="btn-small btn-danger">삭제</button>
             </form>
           </td>

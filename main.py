@@ -102,6 +102,13 @@ def _fmt_kst(dt: datetime | None) -> str:
 SECRET_KEY = os.environ.get("APP_SECRET_KEY", "change_this_secret_in_prod")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
+try:
+    from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+except ImportError:
+    pass
+
 # static, templates 설정
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -332,7 +339,9 @@ def is_admin_logged_in(request: Request) -> bool:
 @app.get("/admin/login")
 async def admin_login_form(request: Request):
     if is_admin_logged_in(request):
-        return RedirectResponse(url="/admin/requests", status_code=302)
+        return RedirectResponse(
+            url=str(request.url_for("admin_requests_list")), status_code=302
+        )
     return templates.TemplateResponse(
         request,
         "admin_login.html",
@@ -348,7 +357,9 @@ async def admin_login(
 ):
     if admin_id == ADMIN_ID and admin_pw == ADMIN_PW:
         request.session["admin_logged_in"] = True
-        return RedirectResponse(url="/admin/requests", status_code=302)
+        return RedirectResponse(
+            url=str(request.url_for("admin_requests_list")), status_code=302
+        )
     else:
         return templates.TemplateResponse(
             request,
@@ -452,7 +463,7 @@ async def admin_settings_test_email(request: Request):
     return RedirectResponse(url="/admin/settings", status_code=302)
 
 
-@app.get("/admin/requests")
+@app.get("/admin/requests", name="admin_requests_list")
 async def admin_requests(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -534,7 +545,7 @@ async def admin_requests(
     )
 
 
-@app.get("/admin/requests/export")
+@app.get("/admin/requests/export", name="admin_requests_export")
 async def admin_requests_export(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -640,9 +651,11 @@ async def admin_requests_export(
 
 
 @app.get("/admin/requests/{req_id}/status")
-async def update_request_status_get(req_id: int):
+async def update_request_status_get(request: Request, req_id: int):
     """실수·북마크·리다이렉트로 GET이 들어오면 JSON 405 대신 목록으로 보냄."""
-    return RedirectResponse(url="/admin/requests", status_code=302)
+    return RedirectResponse(
+        url=str(request.url_for("admin_requests_list")), status_code=302
+    )
 
 
 @app.post("/admin/requests/{req_id}/status", name="update_request_status")
@@ -675,14 +688,16 @@ async def update_request_status(
     ref = (request.headers.get("referer") or "").strip()
     try:
         pr = urlparse(ref)
-        if pr.path.startswith("/admin/requests") and pr.hostname == request.url.hostname:
+        if "/admin/requests" in pr.path and pr.hostname == request.url.hostname:
             return RedirectResponse(url=ref)
     except Exception:
         pass
-    return RedirectResponse(url="/admin/requests", status_code=302)
+    return RedirectResponse(
+        url=str(request.url_for("admin_requests_list")), status_code=302
+    )
 
 
-@app.post("/admin/requests/{req_id}/delete")
+@app.post("/admin/requests/{req_id}/delete", name="admin_delete_request")
 async def admin_delete_request(
     request: Request,
     req_id: int,
@@ -697,8 +712,8 @@ async def admin_delete_request(
     ref = (request.headers.get("referer") or "").strip()
     try:
         pr = urlparse(ref)
-        if pr.path.startswith("/admin/requests") and pr.hostname == request.url.hostname:
+        if "/admin/requests" in pr.path and pr.hostname == request.url.hostname:
             return RedirectResponse(url=ref)
     except Exception:
         pass
-    return RedirectResponse(url="/admin/requests")
+    return RedirectResponse(url=str(request.url_for("admin_requests_list")))

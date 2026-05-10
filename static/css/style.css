@@ -125,10 +125,34 @@ body {
   align-items: center;
 }
 
-.memo-input-cell {
+.status-memo-combined {
   vertical-align: top;
-  min-width: 12rem;
-  max-width: 18rem;
+  min-width: 18rem;
+  max-width: 28rem;
+}
+
+.status-memo-form {
+  margin: 0;
+}
+
+.status-memo-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .status-memo-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.status-memo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
 }
 
 .work-memo-label {
