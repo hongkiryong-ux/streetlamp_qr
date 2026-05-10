@@ -336,6 +336,13 @@ def is_admin_logged_in(request: Request) -> bool:
     return request.session.get("admin_logged_in", False)
 
 
+def admin_app_path(request: Request, path: str) -> str:
+    """폼 action·링크용 상대 경로(root_path 반영). 전체 URL 대신 쓰면 같은 오리진·세션 쿠키 유지에 유리."""
+    rp = (request.scope.get("root_path") or "").rstrip("/")
+    path = path if path.startswith("/") else f"/{path}"
+    return f"{rp}{path}"
+
+
 @app.get("/admin/login")
 async def admin_login_form(request: Request):
     if is_admin_logged_in(request):
@@ -545,8 +552,11 @@ async def admin_requests(
             "content": content,
             "request_type_filter": request_type_filter,
             "export_qs": export_qs,
-            "status_update_url": str(
-                request.url_for("admin_update_request_status")
+            "path_requests_list": admin_app_path(request, "/admin/requests"),
+            "path_requests_export": admin_app_path(request, "/admin/requests/export"),
+            "path_requests_update": admin_app_path(request, "/admin/requests/update"),
+            "path_requests_remove": admin_app_path(
+                request, "/admin/requests/remove-row"
             ),
         },
     )
@@ -669,20 +679,17 @@ async def _admin_apply_request_status(
     db: AsyncSession,
 ) -> RedirectResponse:
     if not is_admin_logged_in(request):
-        return RedirectResponse(url="/admin/login", status_code=302)
+        return RedirectResponse(
+            url=admin_app_path(request, "/admin/login"), status_code=302
+        )
 
     result = await db.execute(
         select(MaintenanceRequest).where(MaintenanceRequest.id == req_id)
     )
     req_obj = result.scalar_one_or_none()
     if not req_obj:
-        # JSON 대신 목록으로 보내기(브라우저에서 {"detail":...} 노출 방지)
-        base = str(request.url_for("admin_requests_list"))
-        sep = "&" if "?" in base else "?"
-        return RedirectResponse(
-            url=f"{base}{sep}flash=nosuchrequest",
-            status_code=302,
-        )
+        base = admin_app_path(request, "/admin/requests")
+        return RedirectResponse(url=f"{base}?flash=nosuchrequest", status_code=302)
 
     req_obj.status = status
     if status == RequestStatus.done:
@@ -696,12 +703,12 @@ async def _admin_apply_request_status(
     ref = (request.headers.get("referer") or "").strip()
     try:
         pr = urlparse(ref)
-        if "/admin/requests" in pr.path and pr.hostname == request.url.hostname:
+        if "/admin/requests" in pr.path:
             return RedirectResponse(url=ref)
     except Exception:
         pass
     return RedirectResponse(
-        url=str(request.url_for("admin_requests_list")), status_code=302
+        url=admin_app_path(request, "/admin/requests"), status_code=302
     )
 
 
@@ -740,6 +747,40 @@ async def update_request_status(
     )
 
 
+@app.post("/admin/requests/remove-row", name="admin_remove_request_row")
+async def admin_remove_request_row(
+    request: Request,
+    mr_id: int = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """삭제도 동적 경로 대신 고정 POST + mr_id (세션·프록시 안정)."""
+    if not is_admin_logged_in(request):
+        return RedirectResponse(
+            url=admin_app_path(request, "/admin/login"), status_code=302
+        )
+
+    row = (
+        await db.execute(
+            select(MaintenanceRequest).where(MaintenanceRequest.id == mr_id)
+        )
+    ).scalar_one_or_none()
+    if not row:
+        base = admin_app_path(request, "/admin/requests")
+        return RedirectResponse(url=f"{base}?flash=nosuchrequest", status_code=302)
+
+    await db.execute(delete(MaintenanceRequest).where(MaintenanceRequest.id == mr_id))
+    await db.commit()
+
+    ref = (request.headers.get("referer") or "").strip()
+    try:
+        pr = urlparse(ref)
+        if "/admin/requests" in pr.path:
+            return RedirectResponse(url=ref)
+    except Exception:
+        pass
+    return RedirectResponse(url=admin_app_path(request, "/admin/requests"))
+
+
 @app.post("/admin/requests/{req_id}/delete", name="admin_delete_request")
 async def admin_delete_request(
     request: Request,
@@ -747,7 +788,9 @@ async def admin_delete_request(
     db: AsyncSession = Depends(get_db),
 ):
     if not is_admin_logged_in(request):
-        return RedirectResponse(url="/admin/login", status_code=302)
+        return RedirectResponse(
+            url=admin_app_path(request, "/admin/login"), status_code=302
+        )
 
     await db.execute(delete(MaintenanceRequest).where(MaintenanceRequest.id == req_id))
     await db.commit()
@@ -755,8 +798,8 @@ async def admin_delete_request(
     ref = (request.headers.get("referer") or "").strip()
     try:
         pr = urlparse(ref)
-        if "/admin/requests" in pr.path and pr.hostname == request.url.hostname:
+        if "/admin/requests" in pr.path:
             return RedirectResponse(url=ref)
     except Exception:
         pass
-    return RedirectResponse(url=str(request.url_for("admin_requests_list")))
+    return RedirectResponse(url=admin_app_path(request, "/admin/requests"))

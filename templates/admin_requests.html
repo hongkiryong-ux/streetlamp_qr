@@ -16,7 +16,7 @@
     </div>
   </div>
 
-  <form method="get" action="{{ request.url_for('admin_requests_list') }}" class="form admin-filter-form">
+  <form method="get" action="{{ path_requests_list }}" class="form admin-filter-form">
     <fieldset class="filter-fieldset">
       <legend>접수 기간 (KST 기준)</legend>
       <div class="filter-row">
@@ -88,8 +88,8 @@
 
     <div class="filter-actions">
       <button type="submit" class="btn-primary" style="width:auto;">검색 적용</button>
-      <a class="btn-secondary" href="{{ request.url_for('admin_requests_list') }}">조건 초기화</a>
-      <a class="btn-secondary" href="{{ request.url_for('admin_requests_export') }}{% if export_qs %}?{{ export_qs }}{% endif %}">엑셀 다운로드 (현재 조건)</a>
+      <a class="btn-secondary" href="{{ path_requests_list }}">조건 초기화</a>
+      <a class="btn-secondary" href="{{ path_requests_export }}{% if export_qs %}?{{ export_qs }}{% endif %}">엑셀 다운로드 (현재 조건)</a>
     </div>
   </form>
 
@@ -126,7 +126,7 @@
           <td style="max-width:14rem; white-space:pre-wrap; word-break:break-word;">{{ r.work_memo or "—" }}</td>
           <td class="status-memo-combined">
             {# 한 폼 안에 상태·비고를 넣어 POST 대상·필드 누락·form 속성 미지원 브라우저 이슈 방지 #}
-            <form method="post" action="{{ status_update_url }}" class="status-memo-form">
+            <form method="post" action="{{ path_requests_update }}" class="status-memo-form">
               <input type="hidden" name="mr_id" value="{{ r.id }}" />
               <div class="status-memo-grid">
                 <div class="status-memo-controls">
@@ -153,7 +153,8 @@
             </form>
           </td>
           <td>
-            <form action="{{ request.url_for('admin_delete_request', req_id=r.id) }}" method="post" class="inline-form" onsubmit="return confirm('이 접수 건을 삭제할까요? 삭제 후에는 복구할 수 없습니다.');">
+            <form action="{{ path_requests_remove }}" method="post" class="inline-form" onsubmit="return confirm('이 접수 건을 삭제할까요? 삭제 후에는 복구할 수 없습니다.');">
+              <input type="hidden" name="mr_id" value="{{ r.id }}" />
               <button type="submit" class="btn-small btn-danger">삭제</button>
             </form>
           </td>
