@@ -764,6 +764,7 @@ async def admin_requests_export(
             "접수번호",
             "가로등 No",
             "접수일시(KST)",
+            "완료일시(KST)",
             "이름",
             "전화번호",
             "정비유형",
@@ -773,22 +774,25 @@ async def admin_requests_export(
         ]
     )
 
+    kst = ZoneInfo("Asia/Seoul")
+
+    def _row_dt_kst(dt: datetime | None) -> str:
+        if not isinstance(dt, datetime):
+            return ""
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(kst).strftime("%Y-%m-%d %H:%M:%S")
+
     for r in rows:
-        created = r.created_at
-        if isinstance(created, datetime):
-            if created.tzinfo is None:
-                created = created.replace(tzinfo=timezone.utc)
-            created_str = created.astimezone(ZoneInfo("Asia/Seoul")).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-        else:
-            created_str = ""
+        created_str = _row_dt_kst(r.created_at)
+        completed_str = _row_dt_kst(r.completed_at) if r.completed_at else ""
 
         ws.append(
             [
                 r.id,
                 r.lamp_id,
                 created_str,
+                completed_str,
                 r.name,
                 r.phone,
                 RequestTypeLabel.get(r.request_type.value, r.request_type.value),
@@ -833,8 +837,14 @@ async def _admin_apply_request_status(
         base = admin_app_path(request, "/admin/requests")
         return RedirectResponse(url=f"{base}?flash=nosuchrequest", status_code=302)
 
+    prev_status = req_obj.status
     memo = (work_memo or "").strip()
     req_obj.status = status
+    if status == RequestStatus.done:
+        if prev_status != RequestStatus.done:
+            req_obj.completed_at = datetime.utcnow()
+    else:
+        req_obj.completed_at = None
     # 비고는 상태와 무관하게 입력하면 저장 (접수/처리중만 두고 글만 적어도 유지)
     if memo:
         req_obj.work_memo = memo

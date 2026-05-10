@@ -109,6 +109,7 @@
       <thead>
         <tr>
           <th class="col-datetime">접수일</th>
+          <th class="col-datetime">완료일</th>
           <th class="col-narrow">가로등 No</th>
           <th class="col-name">이름</th>
           <th class="col-phone">전화</th>
@@ -124,6 +125,13 @@
         {% for r in requests_list %}
         <tr id="admin-req-{{ r.id }}">
           <td class="col-datetime nowrap">{{ r.created_at | fmt_kst_date }}</td>
+          <td class="col-datetime nowrap">
+            {% if r.status == RequestStatus.done and r.completed_at %}
+              {{ r.completed_at | fmt_kst_date }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
           <td class="col-narrow">{{ r.lamp_id }}</td>
           <td class="col-name ellipsis" title="{{ r.name }}">{{ r.name }}</td>
           <td class="col-phone nowrap">{{ r.phone }}</td>

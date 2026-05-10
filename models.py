@@ -39,4 +39,6 @@ class MaintenanceRequest(Base):
     # 완료 처리 시 관리자가 적는 작업/비고
     work_memo = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # 상태가 완료로 바뀐 시각(첫 완료 시 기록, 완료→비완료 시 NULL)
+    completed_at = Column(DateTime, nullable=True)
     lamp = relationship("Lamp", back_populates="requests")

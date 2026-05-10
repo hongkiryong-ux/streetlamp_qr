@@ -31,6 +31,15 @@ RequestStatusLabel = {
 }
 
 
+def _kst_dt_str(dt: datetime | None) -> str:
+    if not isinstance(dt, datetime):
+        return ""
+    d = dt
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return d.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
+
+
 async def fetch_requests_last_48h(session: AsyncSession) -> list[MaintenanceRequest]:
     now_utc = datetime.now(timezone.utc)
     cutoff = now_utc - timedelta(hours=48)
@@ -52,6 +61,7 @@ def build_xlsx_bytes(rows: list[MaintenanceRequest]) -> tuple[bytes, str]:
             "접수번호",
             "가로등 No",
             "접수일시(KST)",
+            "완료일시(KST)",
             "이름",
             "전화번호",
             "정비유형",
@@ -61,20 +71,14 @@ def build_xlsx_bytes(rows: list[MaintenanceRequest]) -> tuple[bytes, str]:
         ]
     )
     for r in rows:
-        created = r.created_at
-        if isinstance(created, datetime):
-            if created.tzinfo is None:
-                created = created.replace(tzinfo=timezone.utc)
-            created_str = created.astimezone(ZoneInfo("Asia/Seoul")).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-        else:
-            created_str = ""
+        created_str = _kst_dt_str(r.created_at)
+        completed_str = _kst_dt_str(r.completed_at) if r.completed_at else ""
         ws.append(
             [
                 r.id,
                 r.lamp_id,
                 created_str,
+                completed_str,
                 r.name,
                 r.phone,
                 RequestTypeLabel.get(r.request_type.value, r.request_type.value),

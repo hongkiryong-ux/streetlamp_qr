@@ -40,10 +40,23 @@ async def ensure_schema_updates() -> None:
                     "ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS work_memo TEXT"
                 )
             )
+            await conn.execute(
+                text(
+                    "ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP"
+                )
+            )
         else:
             try:
                 await conn.execute(
                     text("ALTER TABLE maintenance_requests ADD COLUMN work_memo TEXT")
+                )
+            except OperationalError:
+                pass
+            try:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE maintenance_requests ADD COLUMN completed_at DATETIME"
+                    )
                 )
             except OperationalError:
                 pass
