@@ -16,10 +16,20 @@ from starlette.responses import StreamingResponse
 import os
 from io import BytesIO
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import openpyxl
 
 app = FastAPI()
+
+
+def _fmt_kst(dt: datetime | None) -> str:
+    """DB에 저장된 naive datetime은 UTC로 간주하고 한국시간(날짜·시간·초)으로 표시."""
+    if dt is None:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
 
 # 세션용 (관리자 로그인, 간단하게)
 SECRET_KEY = os.environ.get("APP_SECRET_KEY", "change_this_secret_in_prod")
@@ -28,6 +38,44 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 # static, templates 설정
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+templates.env.filters["fmt_kst"] = _fmt_kst
+
+
+def _admin_requests_select(
+    include_done: bool,
+    status_filter: str,
+    q: str,
+):
+    """관리자 목록/엑셀에서 동일하게 사용하는 쿼리."""
+    stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc())
+    q_strip = (q or "").strip()
+
+    # 상태 필터가 있으면 해당 상태만 (완료만 보기 등)
+    if status_filter:
+        try:
+            stmt = stmt.where(
+                MaintenanceRequest.status == RequestStatus(status_filter)
+            )
+        except ValueError:
+            pass
+    else:
+        # 전체: 기본은 완료(done) 제외.
+        # 검색어가 있으면 완료 건도 검색 결과에 포함되게 한다.
+        if not include_done and not q_strip:
+            stmt = stmt.where(MaintenanceRequest.status != RequestStatus.done)
+
+    if q:
+        pattern = f"%{q.lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(MaintenanceRequest.name).like(pattern),
+                func.lower(MaintenanceRequest.phone).like(pattern),
+                func.lower(func.coalesce(MaintenanceRequest.content, "")).like(pattern),
+                cast(MaintenanceRequest.lamp_id, String).like(f"%{q}%"),
+            )
+        )
+
+    return stmt
 
 
 @app.on_event("startup")
@@ -170,31 +218,7 @@ async def admin_requests(
     )
     status_filter = (request.query_params.get("status") or "").strip()
 
-    stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc())
-
-    # 기본: 완료(done)는 숨김
-    if not include_done:
-        stmt = stmt.where(MaintenanceRequest.status != RequestStatus.done)
-
-    # 상태 필터(선택): received / in_progress / done
-    if status_filter:
-        try:
-            stmt = stmt.where(MaintenanceRequest.status == RequestStatus(status_filter))
-        except ValueError:
-            # 알 수 없는 값이면 무시
-            pass
-
-    # 검색(이름/전화/내용/가로등ID)
-    if q:
-        pattern = f"%{q.lower()}%"
-        stmt = stmt.where(
-            or_(
-                func.lower(MaintenanceRequest.name).like(pattern),
-                func.lower(MaintenanceRequest.phone).like(pattern),
-                func.lower(func.coalesce(MaintenanceRequest.content, "")).like(pattern),
-                cast(MaintenanceRequest.lamp_id, String).like(f"%{q}%"),
-            )
-        )
+    stmt = _admin_requests_select(include_done, status_filter, q)
 
     result = await db.execute(stmt)
     requests_list = result.scalars().all()
@@ -246,24 +270,7 @@ async def admin_requests_export(
     )
     status_filter = (request.query_params.get("status") or "").strip()
 
-    stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc())
-    if not include_done:
-        stmt = stmt.where(MaintenanceRequest.status != RequestStatus.done)
-    if status_filter:
-        try:
-            stmt = stmt.where(MaintenanceRequest.status == RequestStatus(status_filter))
-        except ValueError:
-            pass
-    if q:
-        pattern = f"%{q.lower()}%"
-        stmt = stmt.where(
-            or_(
-                func.lower(MaintenanceRequest.name).like(pattern),
-                func.lower(MaintenanceRequest.phone).like(pattern),
-                func.lower(func.coalesce(MaintenanceRequest.content, "")).like(pattern),
-                cast(MaintenanceRequest.lamp_id, String).like(f"%{q}%"),
-            )
-        )
+    stmt = _admin_requests_select(include_done, status_filter, q)
 
     result = await db.execute(stmt)
     rows = result.scalars().all()
@@ -289,7 +296,7 @@ async def admin_requests_export(
         [
             "접수ID",
             "가로등ID",
-            "접수일시(UTC)",
+            "접수일시(KST)",
             "이름",
             "전화번호",
             "정비유형",
@@ -301,10 +308,11 @@ async def admin_requests_export(
     for r in rows:
         created = r.created_at
         if isinstance(created, datetime):
-            # timezone 정보 없으면 UTC로 간주
             if created.tzinfo is None:
                 created = created.replace(tzinfo=timezone.utc)
-            created_str = created.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            created_str = created.astimezone(ZoneInfo("Asia/Seoul")).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
         else:
             created_str = ""
 

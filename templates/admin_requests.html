@@ -25,7 +25,7 @@
 
     <label style="display:flex; gap:0.5rem; align-items:center;">
       <input type="checkbox" name="include_done" {% if include_done %}checked{% endif %} />
-      완료 포함(기본은 완료 숨김)
+      완료 포함 (상태가 <strong>전체</strong>이고 검색어가 없을 때만 적용 · 검색 시에는 완료 건도 검색됨)
     </label>
 
     <div style="display:flex; gap:0.5rem; align-items:center;">
@@ -41,6 +41,7 @@
       <thead>
         <tr>
           <th>ID</th>
+          <th>접수일시(KST)</th>
           <th>가로등</th>
           <th>이름</th>
           <th>전화번호</th>
@@ -54,6 +55,7 @@
         {% for r in requests_list %}
         <tr>
           <td>{{ r.id }}</td>
+          <td>{{ r.created_at | fmt_kst }}</td>
           <td>{{ r.lamp_id }}</td>
           <td>{{ r.name }}</td>
           <td>{{ r.phone }}</td>
