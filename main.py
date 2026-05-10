@@ -98,6 +98,15 @@ def _fmt_kst(dt: datetime | None) -> str:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
 
+
+def _fmt_kst_date(dt: datetime | None) -> str:
+    """관리자 목록 등: 연·월·일만 (KST)."""
+    if dt is None:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
+
 # 세션용 (관리자 로그인, 간단하게)
 SECRET_KEY = os.environ.get("APP_SECRET_KEY", "change_this_secret_in_prod")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
@@ -113,6 +122,7 @@ except ImportError:
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.filters["fmt_kst"] = _fmt_kst
+templates.env.filters["fmt_kst_date"] = _fmt_kst_date
 
 
 def _parse_date_yyyy_mm_dd(s: str) -> date | None:

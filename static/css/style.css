@@ -171,16 +171,22 @@ body {
 }
 
 .table.admin-requests-table .col-datetime {
-  width: 8.5rem;
+  width: 10ch;
+  max-width: 10ch;
 }
 
+/* 이름: 세 글자 분량(한글 기준 대략 3em) */
 .table.admin-requests-table .col-name {
-  width: 5.5rem;
-  max-width: 6rem;
+  width: 3em;
+  max-width: 3em;
+  min-width: 3em;
 }
 
+/* 전화번호 11자리(01012345678) */
 .table.admin-requests-table .col-phone {
-  width: 7.5rem;
+  width: 11ch;
+  max-width: 11ch;
+  min-width: 11ch;
 }
 
 .table.admin-requests-table .col-type {

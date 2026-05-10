@@ -101,7 +101,7 @@
       <thead>
         <tr>
           <th class="col-narrow">ID</th>
-          <th class="col-datetime">접수일시</th>
+          <th class="col-datetime">접수일</th>
           <th class="col-narrow">가로등</th>
           <th class="col-name">이름</th>
           <th class="col-phone">전화</th>
@@ -115,7 +115,7 @@
         {% for r in requests_list %}
         <tr>
           <td class="col-narrow">{{ r.id }}</td>
-          <td class="col-datetime nowrap">{{ r.created_at | fmt_kst }}</td>
+          <td class="col-datetime nowrap">{{ r.created_at | fmt_kst_date }}</td>
           <td class="col-narrow">{{ r.lamp_id }}</td>
           <td class="col-name ellipsis" title="{{ r.name }}">{{ r.name }}</td>
           <td class="col-phone nowrap">{{ r.phone }}</td>
