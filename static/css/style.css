@@ -125,15 +125,10 @@ body {
   align-items: center;
 }
 
-.inline-form.status-form {
-  flex-direction: column;
-  align-items: stretch;
-}
-
-.status-form-row {
-  display: flex;
-  gap: 0.25rem;
-  align-items: center;
+.memo-input-cell {
+  vertical-align: top;
+  min-width: 12rem;
+  max-width: 18rem;
 }
 
 .work-memo-label {
@@ -141,13 +136,15 @@ body {
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.85rem;
-  margin-top: 0.35rem;
+  margin: 0;
 }
 
 .work-memo-label textarea {
   font: inherit;
   resize: vertical;
   min-width: 10rem;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .admin-filter-form .filter-fieldset {

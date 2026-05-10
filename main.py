@@ -530,6 +530,7 @@ async def admin_requests(
             "content": content,
             "request_type_filter": request_type_filter,
             "export_qs": export_qs,
+            "url_for": request.url_for,
         },
     )
 
@@ -639,7 +640,13 @@ async def admin_requests_export(
     )
 
 
-@app.post("/admin/requests/{req_id}/status")
+@app.get("/admin/requests/{req_id}/status")
+async def update_request_status_get(req_id: int):
+    """실수·북마크·리다이렉트로 GET이 들어오면 JSON 405 대신 목록으로 보냄."""
+    return RedirectResponse(url="/admin/requests", status_code=302)
+
+
+@app.post("/admin/requests/{req_id}/status", name="update_request_status")
 async def update_request_status(
     request: Request,
     req_id: int,

@@ -103,6 +103,7 @@
           <th>상태</th>
           <th>작업비고</th>
           <th>처리</th>
+          <th>비고 입력</th>
           <th>삭제</th>
         </tr>
       </thead>
@@ -119,26 +120,26 @@
           <td>{{ RequestStatusLabel[r.status.value] }}</td>
           <td style="max-width:14rem; white-space:pre-wrap; word-break:break-word;">{{ r.work_memo or "—" }}</td>
           <td>
-            <form action="/admin/requests/{{ r.id }}/status" method="post" class="inline-form status-form">
-              <div class="status-form-row">
-                <select name="status">
-                  <option value="{{ RequestStatus.received.value }}" {% if r.status == RequestStatus.received %}selected{% endif %}>
-                    접수
-                  </option>
-                  <option value="{{ RequestStatus.in_progress.value }}" {% if r.status == RequestStatus.in_progress %}selected{% endif %}>
-                    처리중
-                  </option>
-                  <option value="{{ RequestStatus.done.value }}" {% if r.status == RequestStatus.done %}selected{% endif %}>
-                    완료
-                  </option>
-                </select>
-                <button type="submit" class="btn-small">변경</button>
-              </div>
-              <label class="work-memo-label">
-                완료 시 작업·비고
-                <textarea name="work_memo" rows="2" cols="28" placeholder="완료로 바꿀 때 작업 내용을 적어 주세요.">{{ r.work_memo or "" }}</textarea>
-              </label>
+            <form id="status-form-{{ r.id }}" action="{{ url_for('update_request_status', req_id=r.id) }}" method="post" class="inline-form">
+              <select name="status">
+                <option value="{{ RequestStatus.received.value }}" {% if r.status == RequestStatus.received %}selected{% endif %}>
+                  접수
+                </option>
+                <option value="{{ RequestStatus.in_progress.value }}" {% if r.status == RequestStatus.in_progress %}selected{% endif %}>
+                  처리중
+                </option>
+                <option value="{{ RequestStatus.done.value }}" {% if r.status == RequestStatus.done %}selected{% endif %}>
+                  완료
+                </option>
+              </select>
+              <button type="submit" class="btn-small">변경</button>
             </form>
+          </td>
+          <td class="memo-input-cell">
+            <label class="work-memo-label">
+              완료 시 작업·비고
+              <textarea name="work_memo" form="status-form-{{ r.id }}" rows="3" cols="24" placeholder="완료로 바꿀 때 작업 내용을 적어 주세요.">{{ r.work_memo or "" }}</textarea>
+            </label>
           </td>
           <td>
             <form action="/admin/requests/{{ r.id }}/delete" method="post" class="inline-form" onsubmit="return confirm('이 접수 건을 삭제할까요? 삭제 후에는 복구할 수 없습니다.');">
