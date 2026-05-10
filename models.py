@@ -20,6 +20,13 @@ class Lamp(Base):
     location = Column(String(255), nullable=False)   # 위치 이름
     description = Column(Text, nullable=True)        # 상세 설명 (선택)
     requests = relationship("MaintenanceRequest", back_populates="lamp")
+class AppSetting(Base):
+    """관리자 웹에서 수정 가능한 키-값 설정."""
+    __tablename__ = "app_settings"
+    key = Column(String(64), primary_key=True)
+    value = Column(Text, nullable=True)
+
+
 class MaintenanceRequest(Base):
     __tablename__ = "maintenance_requests"
     id = Column(Integer, primary_key=True, index=True)

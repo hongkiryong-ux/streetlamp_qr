@@ -1,4 +1,11 @@
 # main.py
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import secrets
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, Form, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -7,7 +14,9 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, or_, func, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import engine, Base, get_db
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from database import engine, Base, get_db, AsyncSessionLocal
 from models import Lamp, MaintenanceRequest, RequestType, RequestStatus
 
 from starlette.middleware.sessions import SessionMiddleware
@@ -21,7 +30,63 @@ from urllib.parse import urlencode
 
 import openpyxl
 
-app = FastAPI()
+from settings_service import ensure_default_settings, get_all_settings_map, set_setting
+from jobs import reschedule_daily_report_job, public_base_url_for_ping
+from reporting import run_daily_report_pipeline
+
+
+async def keep_alive_worker() -> None:
+    """PUBLIC_BASE_URL 또는 RENDER_EXTERNAL_URL 의 /health 로 최소 요청(설정 분 단위)."""
+    import httpx
+
+    from settings_service import get_setting
+
+    while True:
+        async with AsyncSessionLocal() as session:
+            try:
+                mins = int((await get_setting(session, "keep_alive_minutes") or "0").strip() or "0")
+            except ValueError:
+                mins = 0
+        if mins <= 0:
+            await asyncio.sleep(600)
+            continue
+        await asyncio.sleep(max(60, mins * 60))
+        base = public_base_url_for_ping()
+        if not base:
+            await asyncio.sleep(120)
+            continue
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                await client.get(f"{base}/health")
+        except Exception:
+            pass
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with AsyncSessionLocal() as session:
+        await ensure_default_settings(session)
+        await session.commit()
+
+    scheduler = AsyncIOScheduler(timezone=ZoneInfo("Asia/Seoul"))
+    app.state.scheduler = scheduler
+    await reschedule_daily_report_job(scheduler)
+    scheduler.start()
+
+    keep_task = asyncio.create_task(keep_alive_worker())
+    app.state.keep_alive_task = keep_task
+    yield
+    keep_task.cancel()
+    try:
+        await keep_task
+    except asyncio.CancelledError:
+        pass
+    scheduler.shutdown(wait=False)
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 def _fmt_kst(dt: datetime | None) -> str:
@@ -195,11 +260,10 @@ def _admin_export_query_string(
     return urlencode(params)
 
 
-@app.on_event("startup")
-async def on_startup():
-    # DB 테이블 생성
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+@app.get("/health")
+async def health():
+    """Render/LB 헬스체크 및 깨우기(self-ping)용."""
+    return {"status": "ok"}
 
 
 # 홈: 간단 안내
@@ -318,7 +382,93 @@ async def admin_logout(request: Request):
     return RedirectResponse(url="/admin/login", status_code=302)
 
 
-@app.get("/admin/requests")
+@app.get("/cron/daily-report")
+async def cron_daily_report(secret: str | None = None):
+    """Render 수면 시 내부 스케줄러가 안 돌 수 있어, 외부 Cron(Uptime 등)이 하루 1회 호출하는 용도."""
+    expected = (os.environ.get("CRON_SECRET") or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="환경변수 CRON_SECRET 이 설정되지 않았습니다.",
+        )
+    if not secret:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    digest_s = hashlib.sha256(secret.encode("utf-8")).digest()
+    digest_e = hashlib.sha256(expected.encode("utf-8")).digest()
+    if not secrets.compare_digest(digest_s, digest_e):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    async with AsyncSessionLocal() as session:
+        from settings_service import get_setting
+
+        to_email = await get_setting(session, "report_email")
+        msg = await run_daily_report_pipeline(session, to_email)
+    return {"ok": True, "detail": msg}
+
+
+@app.get("/admin/settings")
+async def admin_settings_get(request: Request):
+    if not is_admin_logged_in(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    async with AsyncSessionLocal() as session:
+        settings_map = await get_all_settings_map(session)
+    base = public_base_url_for_ping()
+    cron_secret_set = bool((os.environ.get("CRON_SECRET") or "").strip())
+    saved = request.query_params.get("saved") == "1"
+    notice = request.session.pop("admin_notice", None)
+    return templates.TemplateResponse(
+        request,
+        "admin_settings.html",
+        {
+            "settings": settings_map,
+            "public_base_url": base,
+            "cron_secret_set": cron_secret_set,
+            "saved": saved,
+            "notice": notice,
+        },
+    )
+
+
+@app.post("/admin/settings")
+async def admin_settings_post(request: Request):
+    if not is_admin_logged_in(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+
+    form = await request.form()
+    report_email = (form.get("report_email") or "").strip()
+    try:
+        report_hour_kst = int(form.get("report_hour_kst") or 16)
+        report_minute_kst = int(form.get("report_minute_kst") or 0)
+        keep_alive_minutes = int(form.get("keep_alive_minutes") or 0)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="숫자 형식이 올바르지 않습니다.")
+
+    use_internal = form.get("use_internal_daily_scheduler") in ("1", "on", "true", "yes")
+
+    async with AsyncSessionLocal() as session:
+        await set_setting(session, "report_email", report_email)
+        await set_setting(session, "report_hour_kst", str(max(0, min(23, report_hour_kst))))
+        await set_setting(session, "report_minute_kst", str(max(0, min(59, report_minute_kst))))
+        await set_setting(session, "keep_alive_minutes", str(max(0, min(1440, keep_alive_minutes))))
+        await set_setting(session, "use_internal_daily_scheduler", "1" if use_internal else "0")
+        await session.commit()
+
+    scheduler = request.app.state.scheduler
+    await reschedule_daily_report_job(scheduler)
+
+    return RedirectResponse(url="/admin/settings?saved=1", status_code=302)
+
+
+@app.post("/admin/settings/test-email")
+async def admin_settings_test_email(request: Request):
+    if not is_admin_logged_in(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    async with AsyncSessionLocal() as session:
+        from settings_service import get_setting
+
+        to_email = await get_setting(session, "report_email")
+        msg = await run_daily_report_pipeline(session, to_email)
+    request.session["admin_notice"] = msg
+    return RedirectResponse(url="/admin/settings", status_code=302)
 async def admin_requests(
     request: Request,
     db: AsyncSession = Depends(get_db),

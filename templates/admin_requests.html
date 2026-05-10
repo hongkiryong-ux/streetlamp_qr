@@ -4,7 +4,10 @@
 <section class="card">
   <div class="admin-header">
     <h2>정비 의뢰 목록</h2>
-    <a href="/admin/logout" class="btn-secondary">로그아웃</a>
+    <div style="display:flex; gap:0.5rem;">
+      <a href="/admin/settings" class="btn-secondary">설정</a>
+      <a href="/admin/logout" class="btn-secondary">로그아웃</a>
+    </div>
   </div>
 
   <form method="get" action="/admin/requests" class="form admin-filter-form">
