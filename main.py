@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from database import engine, Base, get_db, AsyncSessionLocal
+from database import engine, Base, get_db, AsyncSessionLocal, ensure_schema_updates
 from models import Lamp, MaintenanceRequest, RequestType, RequestStatus
 
 from starlette.middleware.sessions import SessionMiddleware
@@ -66,6 +66,7 @@ async def keep_alive_worker() -> None:
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await ensure_schema_updates()
     async with AsyncSessionLocal() as session:
         await ensure_default_settings(session)
         await session.commit()
@@ -593,6 +594,7 @@ async def admin_requests_export(
             "전화번호",
             "정비유형",
             "내용",
+            "작업비고",
             "상태",
         ]
     )
@@ -617,6 +619,7 @@ async def admin_requests_export(
                 r.phone,
                 RequestTypeLabel.get(r.request_type.value, r.request_type.value),
                 r.content or "",
+                r.work_memo or "",
                 RequestStatusLabel.get(r.status.value, r.status.value),
             ]
         )
@@ -641,6 +644,7 @@ async def update_request_status(
     request: Request,
     req_id: int,
     status: RequestStatus = Form(...),
+    work_memo: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
     if not is_admin_logged_in(request):
@@ -654,8 +658,21 @@ async def update_request_status(
         raise HTTPException(status_code=404, detail="요청을 찾을 수 없습니다.")
 
     req_obj.status = status
+    if status == RequestStatus.done:
+        memo = (work_memo or "").strip()
+        req_obj.work_memo = memo if memo else None
+    else:
+        req_obj.work_memo = None
+
     await db.commit()
 
+    ref = (request.headers.get("referer") or "").strip()
+    try:
+        pr = urlparse(ref)
+        if pr.path.startswith("/admin/requests") and pr.hostname == request.url.hostname:
+            return RedirectResponse(url=ref)
+    except Exception:
+        pass
     return RedirectResponse(url="/admin/requests", status_code=302)
 
 

@@ -56,6 +56,7 @@ def build_xlsx_bytes(rows: list[MaintenanceRequest]) -> tuple[bytes, str]:
             "전화번호",
             "정비유형",
             "내용",
+            "작업비고",
             "상태",
         ]
     )
@@ -78,6 +79,7 @@ def build_xlsx_bytes(rows: list[MaintenanceRequest]) -> tuple[bytes, str]:
                 r.phone,
                 RequestTypeLabel.get(r.request_type.value, r.request_type.value),
                 r.content or "",
+                r.work_memo or "",
                 RequestStatusLabel.get(r.status.value, r.status.value),
             ]
         )

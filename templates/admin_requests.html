@@ -101,6 +101,7 @@
           <th>유형</th>
           <th>내용</th>
           <th>상태</th>
+          <th>작업비고</th>
           <th>처리</th>
           <th>삭제</th>
         </tr>
@@ -116,20 +117,27 @@
           <td>{{ RequestTypeLabel[r.request_type.value] }}</td>
           <td>{{ r.content or "" }}</td>
           <td>{{ RequestStatusLabel[r.status.value] }}</td>
+          <td style="max-width:14rem; white-space:pre-wrap; word-break:break-word;">{{ r.work_memo or "—" }}</td>
           <td>
-            <form action="/admin/requests/{{ r.id }}/status" method="post" class="inline-form">
-              <select name="status">
-                <option value="{{ RequestStatus.received.value }}" {% if r.status == RequestStatus.received %}selected{% endif %}>
-                  접수
-                </option>
-                <option value="{{ RequestStatus.in_progress.value }}" {% if r.status == RequestStatus.in_progress %}selected{% endif %}>
-                  처리중
-                </option>
-                <option value="{{ RequestStatus.done.value }}" {% if r.status == RequestStatus.done %}selected{% endif %}>
-                  완료
-                </option>
-              </select>
-              <button type="submit" class="btn-small">변경</button>
+            <form action="/admin/requests/{{ r.id }}/status" method="post" class="inline-form status-form">
+              <div class="status-form-row">
+                <select name="status">
+                  <option value="{{ RequestStatus.received.value }}" {% if r.status == RequestStatus.received %}selected{% endif %}>
+                    접수
+                  </option>
+                  <option value="{{ RequestStatus.in_progress.value }}" {% if r.status == RequestStatus.in_progress %}selected{% endif %}>
+                    처리중
+                  </option>
+                  <option value="{{ RequestStatus.done.value }}" {% if r.status == RequestStatus.done %}selected{% endif %}>
+                    완료
+                  </option>
+                </select>
+                <button type="submit" class="btn-small">변경</button>
+              </div>
+              <label class="work-memo-label">
+                완료 시 작업·비고
+                <textarea name="work_memo" rows="2" cols="28" placeholder="완료로 바꿀 때 작업 내용을 적어 주세요.">{{ r.work_memo or "" }}</textarea>
+              </label>
             </form>
           </td>
           <td>

@@ -36,5 +36,7 @@ class MaintenanceRequest(Base):
     request_type = Column(Enum(RequestType), nullable=False)
     content = Column(Text, nullable=True)
     status = Column(Enum(RequestStatus), default=RequestStatus.received)
+    # 완료 처리 시 관리자가 적는 작업/비고
+    work_memo = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     lamp = relationship("Lamp", back_populates="requests")

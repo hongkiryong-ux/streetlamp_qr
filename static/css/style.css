@@ -125,6 +125,31 @@ body {
   align-items: center;
 }
 
+.inline-form.status-form {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.status-form-row {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.work-memo-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  margin-top: 0.35rem;
+}
+
+.work-memo-label textarea {
+  font: inherit;
+  resize: vertical;
+  min-width: 10rem;
+}
+
 .admin-filter-form .filter-fieldset {
   border: 1px solid #ddd;
   border-radius: 0.35rem;

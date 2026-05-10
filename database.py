@@ -24,6 +24,29 @@ AsyncSessionLocal = async_sessionmaker(
 
 Base = declarative_base()
 
+
+async def ensure_schema_updates() -> None:
+    """기존 DB에 새 컬럼 추가(마이그레이션 없이 운영할 때)."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    url = (os.environ.get("DATABASE_URL") or "").lower()
+    async with engine.begin() as conn:
+        if "postgresql" in url or "postgres" in url:
+            await conn.execute(
+                text(
+                    "ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS work_memo TEXT"
+                )
+            )
+        else:
+            try:
+                await conn.execute(
+                    text("ALTER TABLE maintenance_requests ADD COLUMN work_memo TEXT")
+                )
+            except OperationalError:
+                pass
+
+
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
