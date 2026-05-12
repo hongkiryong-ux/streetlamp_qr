@@ -130,6 +130,9 @@ def _send_email_sync(
 
 
 async def send_daily_report_email(session: AsyncSession, to_email: str) -> str:
+    if not (to_email or "").strip():
+        raise ValueError("받는 메일 주소가 비어 있습니다.")
+
     rows = await fetch_requests_last_48h(session)
     data, fname = build_xlsx_bytes(rows)
     now_kst = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
@@ -146,13 +149,32 @@ async def send_daily_report_email(session: AsyncSession, to_email: str) -> str:
 
 
 async def run_daily_report_pipeline(session: AsyncSession, to_email: str) -> str:
-    """메일 설정이 없으면 엑셀만 생성 후 안내 메시지 반환."""
+    """SMTP 미설정·발송 실패·DB 오류 시에도 문자열로 안내 (관리자 화면 500 방지)."""
+    addr = (to_email or "").strip()
+    if not addr:
+        return "받는 메일 주소가 비어 있습니다. 설정에서 받는 메일 주소를 입력·저장한 뒤 다시 시도하세요."
+
     try:
-        return await send_daily_report_email(session, to_email)
+        return await send_daily_report_email(session, addr)
     except RuntimeError as e:
-        rows = await fetch_requests_last_48h(session)
-        _, fname = build_xlsx_bytes(rows)
+        try:
+            rows = await fetch_requests_last_48h(session)
+            _, fname = build_xlsx_bytes(rows)
+        except Exception as inner:
+            return (
+                f"SMTP 미설정 또는 접수 조회 실패. SMTP: {e} | 조회 오류: {type(inner).__name__}: {inner}"
+            )
         return (
             f"SMTP 미설정으로 메일은 보내지 못했습니다: {e}. "
             f"(대상 건수 {len(rows)}, 파일명 예: {fname})"
+        )
+    except ValueError as e:
+        return str(e)
+    except Exception as e:
+        return (
+            f"메일 발송에 실패했습니다 ({type(e).__name__}): {e}\n\n"
+            "점검: Render 환경변수 SMTP_HOST(예: smtp.gmail.com), SMTP_PORT(587), "
+            "SMTP_USER, SMTP_PASSWORD(앱 비밀번호), SMTP_FROM, SMTP_USE_TLS=true · "
+            "Gmail은 일반 비밀번호가 아닌 앱 비밀번호가 필요합니다. "
+            "DB 스키마 오류면 서버 재배포 후에도 동일하면 Render Logs의 SQL 오류를 확인하세요."
         )

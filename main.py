@@ -587,11 +587,14 @@ async def admin_settings_test_email(request: Request):
         return RedirectResponse(
             url=admin_app_path(request, "/admin/login"), status_code=302
         )
-    async with AsyncSessionLocal() as session:
-        from settings_service import get_setting
+    try:
+        async with AsyncSessionLocal() as session:
+            from settings_service import get_setting
 
-        to_email = await get_setting(session, "report_email")
-        msg = await run_daily_report_pipeline(session, to_email)
+            to_email = await get_setting(session, "report_email")
+            msg = await run_daily_report_pipeline(session, to_email)
+    except Exception as e:
+        msg = f"테스트 메일 처리 중 오류 ({type(e).__name__}): {e}"
     request.session["admin_notice"] = msg
     return RedirectResponse(
         url=admin_app_path(request, "/admin/settings"), status_code=302
