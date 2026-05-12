@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import smtplib
 from datetime import datetime, timedelta, timezone
@@ -97,6 +96,11 @@ def build_xlsx_bytes(rows: list[MaintenanceRequest]) -> tuple[bytes, str]:
     return bio.read(), filename
 
 
+def _smtp_log(line: str) -> None:
+    """Render 로그에는 보통 print 가 확실히 잡힘(logging.INFO 는 레벨 때문에 안 보일 수 있음)."""
+    print(line, flush=True)
+
+
 def _send_email_sync(
     to_addr: str,
     subject: str,
@@ -115,6 +119,11 @@ def _send_email_sync(
     mail_from = os.environ.get("SMTP_FROM", user).strip()
     use_tls = os.environ.get("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
 
+    _smtp_log(
+        f"[smtp] start host={host!r} port={port} tls={use_tls} "
+        f"user_set={bool(user)} pass_len={len(password)} from={mail_from!r} to={to_addr!r}"
+    )
+
     msg = MIMEMultipart()
     msg["Subject"] = str(Header(subject, "utf-8"))
     msg["From"] = mail_from
@@ -124,17 +133,19 @@ def _send_email_sync(
     part.add_header("Content-Disposition", "attachment", filename=attach_name)
     msg.attach(part)
 
-    with smtplib.SMTP(host, port, timeout=60) as smtp:
-        if use_tls:
-            smtp.starttls()
-        if user and password:
-            smtp.login(user, password)
-        refused = smtp.sendmail(mail_from, [to_addr], msg.as_string())
-        if refused:
-            raise RuntimeError(f"SMTP가 수신 거부: {refused}")
-        logging.getLogger(__name__).info(
-            "SMTP sendmail ok from=%s to=%s host=%s", mail_from, to_addr, host
-        )
+    try:
+        with smtplib.SMTP(host, port, timeout=60) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if user and password:
+                smtp.login(user, password)
+            refused = smtp.sendmail(mail_from, [to_addr], msg.as_string())
+            if refused:
+                raise RuntimeError(f"SMTP가 수신 거부: {refused}")
+        _smtp_log(f"[smtp] sendmail ok from={mail_from!r} to={to_addr!r}")
+    except Exception as e:
+        _smtp_log(f"[smtp] FAILED {type(e).__name__}: {e}")
+        raise
 
 
 async def send_daily_report_email(session: AsyncSession, to_email: str) -> str:
@@ -163,29 +174,39 @@ async def run_daily_report_pipeline(session: AsyncSession, to_email: str) -> str
     """SMTP 미설정·발송 실패·DB 오류 시에도 문자열로 안내 (관리자 화면 500 방지)."""
     addr = (to_email or "").strip()
     if not addr:
+        _smtp_log("[smtp] pipeline skip: empty report_email")
         return "받는 메일 주소가 비어 있습니다. 설정에서 받는 메일 주소를 입력·저장한 뒤 다시 시도하세요."
 
     try:
-        return await send_daily_report_email(session, addr)
+        out = await send_daily_report_email(session, addr)
+        _smtp_log("[smtp] pipeline ok (see settings notice for recipient)")
+        return out
     except RuntimeError as e:
         try:
             rows = await fetch_requests_last_48h(session)
             _, fname = build_xlsx_bytes(rows)
         except Exception as inner:
-            return (
+            msg = (
                 f"SMTP 미설정 또는 접수 조회 실패. SMTP: {e} | 조회 오류: {type(inner).__name__}: {inner}"
             )
-        return (
+            _smtp_log(f"[smtp] pipeline fail: {msg}")
+            return msg
+        msg = (
             f"SMTP 미설정으로 메일은 보내지 못했습니다: {e}. "
             f"(대상 건수 {len(rows)}, 파일명 예: {fname})"
         )
+        _smtp_log(f"[smtp] pipeline fail: {msg}")
+        return msg
     except ValueError as e:
+        _smtp_log(f"[smtp] pipeline skip: {e}")
         return str(e)
     except Exception as e:
-        return (
+        msg = (
             f"메일 발송에 실패했습니다 ({type(e).__name__}): {e}\n\n"
             "점검: Render 환경변수 SMTP_HOST(예: smtp.gmail.com), SMTP_PORT(587), "
             "SMTP_USER, SMTP_PASSWORD(앱 비밀번호), SMTP_FROM, SMTP_USE_TLS=true · "
             "Gmail은 일반 비밀번호가 아닌 앱 비밀번호가 필요합니다. "
             "DB 스키마 오류면 서버 재배포 후에도 동일하면 Render Logs의 SQL 오류를 확인하세요."
         )
+        _smtp_log(f"[smtp] pipeline fail: {type(e).__name__}: {e}")
+        return msg

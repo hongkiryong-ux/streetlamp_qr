@@ -595,6 +595,8 @@ async def admin_settings_test_email(request: Request):
             msg = await run_daily_report_pipeline(session, to_email)
     except Exception as e:
         msg = f"테스트 메일 처리 중 오류 ({type(e).__name__}): {e}"
+    preview = (msg or "").replace("\n", " ")[:400]
+    print(f"[test-email] {preview}", flush=True)
     request.session["admin_notice"] = msg
     return RedirectResponse(
         url=admin_app_path(request, "/admin/settings"), status_code=302
