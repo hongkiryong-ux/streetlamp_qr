@@ -5,6 +5,7 @@ import asyncio
 import os
 import smtplib
 import socket
+import ssl
 from datetime import datetime, timedelta, timezone
 from email.header import Header
 from email.mime.application import MIMEApplication
@@ -102,30 +103,45 @@ def _smtp_log(line: str) -> None:
     print(line, flush=True)
 
 
+def _tcp_connect_ipv4(host: str, port: int, timeout: float) -> socket.socket:
+    """smtp.gmail.com 등에 IPv4로만 TCP 연결."""
+    last_exc: OSError | None = None
+    for res in socket.getaddrinfo(host, int(port), socket.AF_INET, socket.SOCK_STREAM):
+        af, socktype, proto, _canon, sockaddr = res
+        sock: socket.socket | None = None
+        try:
+            sock = socket.socket(af, socktype, proto)
+            sock.settimeout(timeout)
+            sock.connect(sockaddr)
+            _smtp_log(f"[smtp] tcp open {sockaddr[0]}:{sockaddr[1]}")
+            return sock
+        except OSError as e:
+            last_exc = e
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+    if last_exc is not None:
+        raise last_exc
+    raise OSError(f"IPv4 연결 실패: {host!r}:{port}")
+
+
 class _SMTPForceIPv4(smtplib.SMTP):
     """IPv6 경로가 없어 `Network is unreachable`(errno 101) 나는 환경(Render 등)용 — IPv4만 연결."""
 
     def _get_socket(self, host, port, timeout):
         self.timeout = timeout
-        last_exc: OSError | None = None
-        for res in socket.getaddrinfo(host, int(port), socket.AF_INET, socket.SOCK_STREAM):
-            af, socktype, proto, _canon, sockaddr = res
-            sock: socket.socket | None = None
-            try:
-                sock = socket.socket(af, socktype, proto)
-                sock.settimeout(timeout)
-                sock.connect(sockaddr)
-                return sock
-            except OSError as e:
-                last_exc = e
-                if sock is not None:
-                    try:
-                        sock.close()
-                    except OSError:
-                        pass
-        if last_exc is not None:
-            raise last_exc
-        raise OSError(f"IPv4 연결 실패: {host!r}:{port}")
+        return _tcp_connect_ipv4(host, int(port), float(timeout))
+
+
+class _SMTPSSLForceIPv4(smtplib.SMTP_SSL):
+    """Gmail 465(SMTPS) 등: IPv4 TCP 후 즉시 TLS(암시적 SSL)."""
+
+    def _get_socket(self, host, port, timeout):
+        self.timeout = timeout
+        plain = _tcp_connect_ipv4(host, int(port), float(timeout))
+        return self.context.wrap_socket(plain, server_hostname=host)
 
 
 def _send_email_sync(
@@ -145,9 +161,19 @@ def _send_email_sync(
     password = "".join((os.environ.get("SMTP_PASSWORD", "") or "").split())
     mail_from = os.environ.get("SMTP_FROM", user).strip()
     use_tls = os.environ.get("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
+    try:
+        timeout = float(os.environ.get("SMTP_TIMEOUT", "120"))
+    except ValueError:
+        timeout = 120.0
+    use_implicit_ssl = os.environ.get("SMTP_USE_SSL", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    ) or int(port) == 465
 
     _smtp_log(
-        f"[smtp] start host={host!r} port={port} tls={use_tls} "
+        f"[smtp] start host={host!r} port={port} timeout={timeout}s "
+        f"mode={'SMTPS(465)' if use_implicit_ssl else 'STARTTLS'} tls_starttls={use_tls} "
         f"user_set={bool(user)} pass_len={len(password)} from={mail_from!r} to={to_addr!r}"
     )
 
@@ -161,18 +187,30 @@ def _send_email_sync(
     msg.attach(part)
 
     try:
-        with _SMTPForceIPv4(host, port, timeout=60) as smtp:
-            _smtp_log("[smtp] connected")
-            if use_tls:
-                smtp.starttls()
-                _smtp_log("[smtp] starttls ok")
-            if user and password:
-                smtp.login(user, password)
-                _smtp_log("[smtp] login ok")
-            _smtp_log("[smtp] sending...")
-            refused = smtp.sendmail(mail_from, [to_addr], msg.as_string())
-            if refused:
-                raise RuntimeError(f"SMTP가 수신 거부: {refused}")
+        if use_implicit_ssl:
+            ctx = ssl.create_default_context()
+            with _SMTPSSLForceIPv4(host, port, timeout=timeout, context=ctx) as smtp:
+                _smtp_log(f"[smtp] connected (implicit TLS, port {port})")
+                if user and password:
+                    smtp.login(user, password)
+                    _smtp_log("[smtp] login ok")
+                _smtp_log("[smtp] sending...")
+                refused = smtp.sendmail(mail_from, [to_addr], msg.as_string())
+                if refused:
+                    raise RuntimeError(f"SMTP가 수신 거부: {refused}")
+        else:
+            with _SMTPForceIPv4(host, port, timeout=timeout) as smtp:
+                _smtp_log("[smtp] connected (plain)")
+                if use_tls:
+                    smtp.starttls(context=ssl.create_default_context())
+                    _smtp_log("[smtp] starttls ok")
+                if user and password:
+                    smtp.login(user, password)
+                    _smtp_log("[smtp] login ok")
+                _smtp_log("[smtp] sending...")
+                refused = smtp.sendmail(mail_from, [to_addr], msg.as_string())
+                if refused:
+                    raise RuntimeError(f"SMTP가 수신 거부: {refused}")
         _smtp_log(f"[smtp] sendmail ok from={mail_from!r} to={to_addr!r}")
     except Exception as e:
         _smtp_log(f"[smtp] FAILED {type(e).__name__}: {e}")
@@ -234,11 +272,14 @@ async def run_daily_report_pipeline(session: AsyncSession, to_email: str) -> str
     except Exception as e:
         msg = (
             f"메일 발송에 실패했습니다 ({type(e).__name__}): {e}\n\n"
-            "점검: Render 환경변수 SMTP_HOST(예: smtp.gmail.com), SMTP_PORT(587), "
+            "점검: Render 환경변수 SMTP_HOST(예: smtp.gmail.com), SMTP_PORT, "
             "SMTP_USER, SMTP_PASSWORD(앱 비밀번호), SMTP_FROM, SMTP_USE_TLS=true · "
             "Gmail은 일반 비밀번호가 아닌 앱 비밀번호가 필요합니다. "
-            "`Network is unreachable`(errno 101)이 계속이면 최신 코드(IPv4 전용 SMTP 연결) 배포 여부를 확인하세요. "
-            "DB 스키마 오류면 서버 재배포 후에도 동일하면 Render Logs의 SQL 오류를 확인하세요."
+            "`Network is unreachable`(errno 101)이면 IPv4 전용 연결 코드 배포 여부를 확인하세요. "
+            "`TimeoutError`: 재배포·인스턴스 교체 직후에는 끊길 수 있으니 1~2분 뒤 재시도. "
+            "587이 계속 타임아웃이면 `SMTP_PORT=465`, `SMTP_USE_SSL=true` 로 Gmail SMTPS(암시적 SSL)를 시도하세요. "
+            "선택: `SMTP_TIMEOUT`(초, 기본 120)으로 대기 시간 조정. "
+            "DB 스키마 오류면 Render Logs의 SQL 메시지를 확인하세요."
         )
         _smtp_log(f"[smtp] pipeline fail: {type(e).__name__}: {e}")
         return msg
