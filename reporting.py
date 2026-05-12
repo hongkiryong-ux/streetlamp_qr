@@ -135,10 +135,14 @@ def _send_email_sync(
 
     try:
         with smtplib.SMTP(host, port, timeout=60) as smtp:
+            _smtp_log("[smtp] connected")
             if use_tls:
                 smtp.starttls()
+                _smtp_log("[smtp] starttls ok")
             if user and password:
                 smtp.login(user, password)
+                _smtp_log("[smtp] login ok")
+            _smtp_log("[smtp] sending...")
             refused = smtp.sendmail(mail_from, [to_addr], msg.as_string())
             if refused:
                 raise RuntimeError(f"SMTP가 수신 거부: {refused}")
