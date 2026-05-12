@@ -24,6 +24,10 @@
         받는 메일 주소
         <input type="email" name="report_email" value="{{ settings.report_email }}" required />
       </label>
+      <p class="help-text">
+        테스트 메일·일일 요약은 <strong>이 주소로만</strong> 전송됩니다. (SMTP의 발신 <code>SMTP_FROM</code>과는 별개입니다.)
+        발신용 Gmail과 같은 주소로 받으려면 여기에도 그 주소를 넣고 저장하세요.
+      </p>
       <div class="filter-row">
         <label>
           발송 시각 (KST) — 시
@@ -90,6 +94,10 @@
   <form method="post" action="{{ path_settings_test_email }}" style="margin-top:1rem;">
     <button type="submit" class="btn-secondary">지금 테스트 메일 보내기 (48시간 접수 요약)</button>
   </form>
+  <p class="help-text" style="margin-top:0.5rem;">
+    발송 성공 시 위 회색 안내에 <strong>수신 주소</strong>가 표시됩니다. 메일이 없으면 그 주소의 스팸함을 확인하고,
+    Render <strong>Logs</strong>에서 <code>SMTP sendmail ok</code> 로그가 찍혔는지 확인하세요.
+  </p>
 </section>
 
 <style>

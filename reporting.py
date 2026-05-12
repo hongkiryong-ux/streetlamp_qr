@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import smtplib
 from datetime import datetime, timedelta, timezone
+from email.header import Header
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -108,12 +110,13 @@ def _send_email_sync(
 
     port = int(os.environ.get("SMTP_PORT", "587"))
     user = os.environ.get("SMTP_USER", "").strip()
-    password = os.environ.get("SMTP_PASSWORD", "").strip()
+    # Gmail 앱 비밀번호는 화면에 "abcd efgh ..." 로 보이므로 붙여넣 시 공백 제거
+    password = "".join((os.environ.get("SMTP_PASSWORD", "") or "").split())
     mail_from = os.environ.get("SMTP_FROM", user).strip()
     use_tls = os.environ.get("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
 
     msg = MIMEMultipart()
-    msg["Subject"] = subject
+    msg["Subject"] = str(Header(subject, "utf-8"))
     msg["From"] = mail_from
     msg["To"] = to_addr
     msg.attach(MIMEText(body, "plain", "utf-8"))
@@ -126,7 +129,12 @@ def _send_email_sync(
             smtp.starttls()
         if user and password:
             smtp.login(user, password)
-        smtp.sendmail(mail_from, [to_addr], msg.as_string())
+        refused = smtp.sendmail(mail_from, [to_addr], msg.as_string())
+        if refused:
+            raise RuntimeError(f"SMTP가 수신 거부: {refused}")
+        logging.getLogger(__name__).info(
+            "SMTP sendmail ok from=%s to=%s host=%s", mail_from, to_addr, host
+        )
 
 
 async def send_daily_report_email(session: AsyncSession, to_email: str) -> str:
@@ -145,7 +153,10 @@ async def send_daily_report_email(session: AsyncSession, to_email: str) -> str:
     await asyncio.to_thread(
         _send_email_sync, to_email, subject, body, data, fname
     )
-    return f"메일 발송 완료: {to_email}, 건수 {len(rows)}"
+    return (
+        f"메일 발송 완료 — 수신 주소: {to_email} (설정의 「받는 메일 주소」로 발송됨), 건수 {len(rows)}건. "
+        "수신함·스팸함·프로모션함을 확인하세요. 다른 주소로 받으려면 설정에서 받는 메일을 바꾼 뒤 저장하세요."
+    )
 
 
 async def run_daily_report_pipeline(session: AsyncSession, to_email: str) -> str:
