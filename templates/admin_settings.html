@@ -76,6 +76,17 @@
     </fieldset>
 
     <fieldset class="filter-fieldset">
+      <legend>Resend (Render에서 SMTP 타임아웃일 때 권장)</legend>
+      <p class="help-text">
+        Render 무료 플랜 등에서 <code>smtp.gmail.com</code> 로 나가는 <strong>SMTP가 막히거나 계속 타임아웃</strong>이면,
+        <a href="https://resend.com" target="_blank" rel="noopener">resend.com</a> 에서 API 키를 발급하고 Environment에
+        <code>RESEND_API_KEY=re_...</code> 만 넣으면 됩니다(HTTPS, 포트 443).
+        선택: <code>RESEND_FROM</code> — 비우면 <code>SMTP_FROM</code> 또는 Resend 기본 <code>onboarding@resend.dev</code>.
+        도메인 미검증 시 Resend 정책으로 <strong>수신 주소가 제한</strong>될 수 있으니, 안 되면 Resend 대시보드에서 허용 수신·도메인을 확인하세요.
+      </p>
+    </fieldset>
+
+    <fieldset class="filter-fieldset">
       <legend>SMTP (메일 발송 필수)</legend>
       <p class="help-text">
         Render → Environment 예:

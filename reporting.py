@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import smtplib
 import socket
@@ -14,11 +15,21 @@ from email.mime.text import MIMEText
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
+import httpx
 import openpyxl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import MaintenanceRequest, RequestType, RequestStatus
+
+
+class SmtpNotConfiguredError(Exception):
+    """SMTP_HOST 가 비어 있을 때 (Resend 미사용)."""
+
+
+class ResendApiError(Exception):
+    """Resend HTTP API 오류."""
+
 
 RequestTypeLabel = {
     RequestType.outage.value: "불점등",
@@ -103,6 +114,56 @@ def _smtp_log(line: str) -> None:
     print(line, flush=True)
 
 
+def _send_via_resend_sync(
+    to_addr: str,
+    subject: str,
+    body: str,
+    attachment: bytes,
+    attach_name: str,
+) -> None:
+    """Render 등에서 SMTP(587/465)가 막힐 때 — HTTPS api.resend.com 사용."""
+    key = os.environ.get("RESEND_API_KEY", "").strip()
+    if not key:
+        raise ResendApiError("RESEND_API_KEY 가 비어 있습니다.")
+    mail_from = (
+        os.environ.get("RESEND_FROM", "").strip()
+        or os.environ.get("SMTP_FROM", "").strip()
+        or "onboarding@resend.dev"
+    )
+    _smtp_log(f"[resend] POST /emails to={to_addr!r} from={mail_from!r} attach={attach_name!r}")
+    payload = {
+        "from": mail_from,
+        "to": [to_addr],
+        "subject": subject,
+        "text": body,
+        "attachments": [
+            {
+                "filename": attach_name,
+                "content": base64.b64encode(attachment).decode("ascii"),
+            }
+        ],
+    }
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            r = client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+    except httpx.RequestError as e:
+        raise ResendApiError(f"Resend 연결 실패: {e}") from e
+    if r.status_code >= 400:
+        raise ResendApiError(f"HTTP {r.status_code}: {r.text[:800]}")
+    try:
+        jid = r.json().get("id", "")
+    except Exception:
+        jid = ""
+    _smtp_log(f"[resend] ok id={jid!r}")
+
+
 def _tcp_connect_ipv4(host: str, port: int, timeout: float) -> socket.socket:
     """smtp.gmail.com 등에 IPv4로만 TCP 연결."""
     last_exc: OSError | None = None
@@ -151,9 +212,16 @@ def _send_email_sync(
     attachment: bytes,
     attach_name: str,
 ) -> None:
+    if os.environ.get("RESEND_API_KEY", "").strip():
+        _send_via_resend_sync(to_addr, subject, body, attachment, attach_name)
+        return
+
     host = os.environ.get("SMTP_HOST", "").strip()
     if not host:
-        raise RuntimeError("SMTP_HOST 환경변수가 없습니다. Render에 SMTP 설정을 추가하세요.")
+        raise SmtpNotConfiguredError(
+            "SMTP_HOST 가 없습니다. Render에서 Gmail SMTP 대신 "
+            "RESEND_API_KEY(및 선택 RESEND_FROM)를 설정해 Resend로 보내거나, SMTP_HOST 를 채우세요."
+        )
 
     port = int(os.environ.get("SMTP_PORT", "587"))
     user = os.environ.get("SMTP_USER", "").strip()
@@ -233,14 +301,15 @@ async def send_daily_report_email(session: AsyncSession, to_email: str) -> str:
     await asyncio.to_thread(
         _send_email_sync, to_email, subject, body, data, fname
     )
+    via = "Resend(HTTPS)" if os.environ.get("RESEND_API_KEY", "").strip() else "SMTP"
     return (
-        f"메일 발송 완료 — 수신 주소: {to_email} (설정의 「받는 메일 주소」로 발송됨), 건수 {len(rows)}건. "
+        f"메일 발송 완료 ({via}) — 수신 주소: {to_email} (설정의 「받는 메일 주소」로 발송됨), 건수 {len(rows)}건. "
         "수신함·스팸함·프로모션함을 확인하세요. 다른 주소로 받으려면 설정에서 받는 메일을 바꾼 뒤 저장하세요."
     )
 
 
 async def run_daily_report_pipeline(session: AsyncSession, to_email: str) -> str:
-    """SMTP 미설정·발송 실패·DB 오류 시에도 문자열로 안내 (관리자 화면 500 방지)."""
+    """Resend·SMTP 미설정·발송 실패·DB 오류 시에도 문자열로 안내 (관리자 화면 500 방지)."""
     addr = (to_email or "").strip()
     if not addr:
         _smtp_log("[smtp] pipeline skip: empty report_email")
@@ -248,23 +317,35 @@ async def run_daily_report_pipeline(session: AsyncSession, to_email: str) -> str
 
     try:
         out = await send_daily_report_email(session, addr)
-        _smtp_log("[smtp] pipeline ok (see settings notice for recipient)")
+        _smtp_log("[email] pipeline ok (see settings notice for recipient)")
         return out
-    except RuntimeError as e:
+    except SmtpNotConfiguredError as e:
         try:
             rows = await fetch_requests_last_48h(session)
             _, fname = build_xlsx_bytes(rows)
         except Exception as inner:
             msg = (
-                f"SMTP 미설정 또는 접수 조회 실패. SMTP: {e} | 조회 오류: {type(inner).__name__}: {inner}"
+                f"메일 설정 오류: {e} | 접수 조회 오류: {type(inner).__name__}: {inner}"
             )
-            _smtp_log(f"[smtp] pipeline fail: {msg}")
+            _smtp_log(f"[email] pipeline fail: {msg}")
             return msg
         msg = (
-            f"SMTP 미설정으로 메일은 보내지 못했습니다: {e}. "
+            f"{e} "
             f"(대상 건수 {len(rows)}, 파일명 예: {fname})"
         )
-        _smtp_log(f"[smtp] pipeline fail: {msg}")
+        _smtp_log(f"[email] pipeline fail: {msg}")
+        return msg
+    except ResendApiError as e:
+        _smtp_log(f"[resend] pipeline fail: {e}")
+        return f"Resend 발송 실패: {e}"
+    except RuntimeError as e:
+        try:
+            rows = await fetch_requests_last_48h(session)
+            n = len(rows)
+        except Exception:
+            n = "?"
+        msg = f"SMTP 오류: {e} (접수 {n}건)"
+        _smtp_log(f"[email] pipeline fail: {msg}")
         return msg
     except ValueError as e:
         _smtp_log(f"[smtp] pipeline skip: {e}")
@@ -272,14 +353,13 @@ async def run_daily_report_pipeline(session: AsyncSession, to_email: str) -> str
     except Exception as e:
         msg = (
             f"메일 발송에 실패했습니다 ({type(e).__name__}): {e}\n\n"
-            "점검: Render 환경변수 SMTP_HOST(예: smtp.gmail.com), SMTP_PORT, "
-            "SMTP_USER, SMTP_PASSWORD(앱 비밀번호), SMTP_FROM, SMTP_USE_TLS=true · "
-            "Gmail은 일반 비밀번호가 아닌 앱 비밀번호가 필요합니다. "
-            "`Network is unreachable`(errno 101)이면 IPv4 전용 연결 코드 배포 여부를 확인하세요. "
-            "`TimeoutError`: 재배포·인스턴스 교체 직후에는 끊길 수 있으니 1~2분 뒤 재시도. "
-            "587이 계속 타임아웃이면 `SMTP_PORT=465`, `SMTP_USE_SSL=true` 로 Gmail SMTPS(암시적 SSL)를 시도하세요. "
-            "선택: `SMTP_TIMEOUT`(초, 기본 120)으로 대기 시간 조정. "
-            "DB 스키마 오류면 Render Logs의 SQL 메시지를 확인하세요."
+            "Render 무료 등에서 **아웃바운드 SMTP(587/465)가 막혀 Timeout** 나는 경우가 많습니다. "
+            "이때는 Gmail SMTP 대신 **Resend**(HTTPS)를 쓰세요: resend.com 가입 → API 키 발급 → "
+            "Render Environment에 `RESEND_API_KEY=re_...` 추가(선택 `RESEND_FROM`, 미설정 시 onboarding@resend.dev). "
+            "도메인 없이 테스트하면 Resend 정책상 수신 주소가 제한될 수 있습니다.\n\n"
+            "SMTP를 계속 쓸 경우: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD(앱 비밀번호), SMTP_FROM, "
+            "SMTP_USE_TLS · `SMTP_PORT=465`+`SMTP_USE_SSL=true` · `SMTP_TIMEOUT`(초). "
+            "`TimeoutError`는 재배포 직후 재시도. DB 오류는 Render Logs SQL 메시지 확인."
         )
         _smtp_log(f"[smtp] pipeline fail: {type(e).__name__}: {e}")
         return msg
