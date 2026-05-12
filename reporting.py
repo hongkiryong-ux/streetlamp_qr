@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import smtplib
+import socket
 from datetime import datetime, timedelta, timezone
 from email.header import Header
 from email.mime.application import MIMEApplication
@@ -101,6 +102,32 @@ def _smtp_log(line: str) -> None:
     print(line, flush=True)
 
 
+class _SMTPForceIPv4(smtplib.SMTP):
+    """IPv6 경로가 없어 `Network is unreachable`(errno 101) 나는 환경(Render 등)용 — IPv4만 연결."""
+
+    def _get_socket(self, host, port, timeout):
+        self.timeout = timeout
+        last_exc: OSError | None = None
+        for res in socket.getaddrinfo(host, int(port), socket.AF_INET, socket.SOCK_STREAM):
+            af, socktype, proto, _canon, sockaddr = res
+            sock: socket.socket | None = None
+            try:
+                sock = socket.socket(af, socktype, proto)
+                sock.settimeout(timeout)
+                sock.connect(sockaddr)
+                return sock
+            except OSError as e:
+                last_exc = e
+                if sock is not None:
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+        if last_exc is not None:
+            raise last_exc
+        raise OSError(f"IPv4 연결 실패: {host!r}:{port}")
+
+
 def _send_email_sync(
     to_addr: str,
     subject: str,
@@ -134,7 +161,7 @@ def _send_email_sync(
     msg.attach(part)
 
     try:
-        with smtplib.SMTP(host, port, timeout=60) as smtp:
+        with _SMTPForceIPv4(host, port, timeout=60) as smtp:
             _smtp_log("[smtp] connected")
             if use_tls:
                 smtp.starttls()
@@ -210,6 +237,7 @@ async def run_daily_report_pipeline(session: AsyncSession, to_email: str) -> str
             "점검: Render 환경변수 SMTP_HOST(예: smtp.gmail.com), SMTP_PORT(587), "
             "SMTP_USER, SMTP_PASSWORD(앱 비밀번호), SMTP_FROM, SMTP_USE_TLS=true · "
             "Gmail은 일반 비밀번호가 아닌 앱 비밀번호가 필요합니다. "
+            "`Network is unreachable`(errno 101)이 계속이면 최신 코드(IPv4 전용 SMTP 연결) 배포 여부를 확인하세요. "
             "DB 스키마 오류면 서버 재배포 후에도 동일하면 Render Logs의 SQL 오류를 확인하세요."
         )
         _smtp_log(f"[smtp] pipeline fail: {type(e).__name__}: {e}")
