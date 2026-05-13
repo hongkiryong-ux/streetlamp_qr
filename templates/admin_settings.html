@@ -80,14 +80,16 @@
       <p class="help-text">
         Render 무료 플랜 등에서 <code>smtp.gmail.com</code> 로 나가는 <strong>SMTP가 막히거나 계속 타임아웃</strong>이면,
         <a href="https://resend.com" target="_blank" rel="noopener">resend.com</a> 에서 API 키를 발급하고 Environment에
-        <code>RESEND_API_KEY=re_...</code> 만 넣으면 됩니다(HTTPS, 포트 443).
-        선택: <code>RESEND_FROM</code> — 비우면 <code>SMTP_FROM</code> 또는 Resend 기본 <code>onboarding@resend.dev</code>.
-        도메인 미검증 시 Resend 정책으로 <strong>수신 주소가 제한</strong>될 수 있으니, 안 되면 Resend 대시보드에서 허용 수신·도메인을 확인하세요.
+        <code>RESEND_API_KEY=re_...</code> 를 넣습니다(HTTPS, 포트 443).
+        <strong>발신:</strong> <code>RESEND_FROM</code> 을 비우면 기본 <code>onboarding@resend.dev</code>만 사용합니다.
+        (<code>@gmail.com</code> 은 Resend에서 발신 주소로 쓸 수 없습니다. 도메인을 Resend에 등록·검증한 뒤 <code>noreply@내도메인</code> 을 <code>RESEND_FROM</code>에 넣으세요.)
+        고급: 검증된 발신만 <code>SMTP_FROM</code>과 같게 쓰려면 <code>RESEND_USE_SMTP_FROM=true</code>.
+        테스트는 Resend 정책에 맞는 <strong>받는 주소</strong>로 하세요.
       </p>
     </fieldset>
 
     <fieldset class="filter-fieldset">
-      <legend>SMTP (메일 발송 필수)</legend>
+      <legend>SMTP (Resend 미사용 시)</legend>
       <p class="help-text">
         Render → Environment 예:
         <code>SMTP_HOST</code>=<code>smtp.gmail.com</code>,
@@ -110,7 +112,7 @@
   </form>
   <p class="help-text" style="margin-top:0.5rem;">
     발송 성공 시 위 회색 안내에 <strong>수신 주소</strong>가 표시됩니다. 메일이 없으면 그 주소의 스팸함을 확인하고,
-    Render <strong>Logs</strong>에서 <code>SMTP sendmail ok</code> 로그가 찍혔는지 확인하세요.
+    Render <strong>Logs</strong>에서 Resend 사용 시 <code>[resend] ok</code>, SMTP 사용 시 <code>[smtp] sendmail ok</code> 로그를 확인하세요.
   </p>
 </section>
 
