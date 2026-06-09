@@ -1,7 +1,7 @@
 # database.py
 import os
-import re
-from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
+import ssl
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
@@ -13,82 +13,71 @@ _RAW_DATABASE_URL = (
 )
 
 
-def _replace_hostname(url: str, new_host: str) -> str:
-    parsed = urlparse(url)
-    user = quote(parsed.username or "", safe="")
-    password = quote(parsed.password or "", safe="")
-    auth = f"{user}:{password}@" if user else ""
-    port = f":{parsed.port}" if parsed.port else ""
-    netloc = f"{auth}{new_host}{port}"
-    return urlunparse(
-        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
-    )
-
-
-def _to_render_internal_host(host: str) -> tuple[str, str | None]:
-    """
-    External: dpg-xxx-a.singapore-postgres.render.com
-    Internal: dpg-xxx-a  (같은 리전 Render 웹 서비스에서만 DNS 해석됨)
-    """
-    host = host or ""
-    m = re.match(r"^(dpg-[a-z0-9-]+-a)\.[a-z0-9-]+-postgres\.render\.com$", host, re.I)
-    if m:
-        region = host.split(".")[1].replace("-postgres", "")  # singapore
-        return m.group(1), region
-    return host, None
-
-
-def _prepare_database_url(raw: str) -> str:
+def _postgres_conninfo(raw: str) -> str:
+    """psycopg libpq 연결 문자열 (External URL 유지, sslmode=require)."""
     url = raw
-    if url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if url.startswith("postgresql+psycopg://"):
+        url = url.replace("postgresql+psycopg://", "postgresql://", 1)
     elif url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+psycopg://", 1)
-
-    if not url.startswith("postgresql+psycopg://"):
-        return url
+        url = url.replace("postgres://", "postgresql://", 1)
 
     parsed = urlparse(url)
     host = parsed.hostname or ""
-    internal_host, db_region = _to_render_internal_host(host)
-
-    if internal_host != host:
-        print(
-            f"[db] External→Internal: {host} → {internal_host} "
-            f"(DB region={db_region}, 웹 서비스도 {db_region} 리전이어야 함)",
-            flush=True,
-        )
-        url = _replace_hostname(url, internal_host)
-        parsed = urlparse(url)
-        host = internal_host
-
     qs = parse_qs(parsed.query, keep_blank_values=True)
     qs.pop("sslmode", None)
 
+    # Internal 짧은 호스트(dpg-xxx-a)는 같은 리전 Render에서만 DNS 됨.
+    # 리전 다르면 External(*.postgres.render.com) URL 을 그대로 써야 함.
     if host.startswith("dpg-") and "." not in host:
-        # Render private network (internal hostname)
         qs["sslmode"] = ["prefer"]
-    elif re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", host):
-        print("[db] ERROR: DATABASE_URL 에 IP가 들어있습니다. Connect 탭 URL 전체를 사용하세요.", flush=True)
-        qs["sslmode"] = ["require"]
+        print(
+            f"[db] Internal host={host} (웹·DB 리전 같을 때만 동작). "
+            "Name not known 이면 Postgres Connect → External URL 사용.",
+            flush=True,
+        )
     else:
         qs["sslmode"] = ["require"]
+        print(f"[db] External host={host} sslmode=require", flush=True)
 
     clean_qs = urlencode({k: v[0] for k, v in qs.items() if v and v[0]})
-    final = urlunparse(parsed._replace(query=clean_qs))
-    print(f"[db] connect host={parsed.hostname} sslmode={qs.get('sslmode', [''])[0]}", flush=True)
-    return final
+    return urlunparse(parsed._replace(query=clean_qs))
 
 
-DATABASE_URL = _prepare_database_url(_RAW_DATABASE_URL)
+def _create_engine():
+    raw = _RAW_DATABASE_URL
+    lower = raw.lower()
 
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    connect_args={"connect_timeout": 15},
-)
+    if lower.startswith("sqlite"):
+        return create_async_engine(raw, echo=False)
+
+    if "postgres" in lower:
+        conninfo = _postgres_conninfo(raw)
+
+        async def _connect():
+            import psycopg
+
+            # Render External Postgres: libpq DSN + SSL (CERT_NONE = sslmode require 수준)
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+            return await psycopg.AsyncConnection.connect(
+                conninfo,
+                ssl=ssl_ctx,
+                connect_timeout=15,
+            )
+
+        return create_async_engine(
+            "postgresql+psycopg://",
+            async_creator=_connect,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+        )
+
+    return create_async_engine(raw, echo=False)
+
+
+DATABASE_URL = _RAW_DATABASE_URL
+engine = _create_engine()
 
 AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
