@@ -1,5 +1,8 @@
 # database.py
 import os
+import ssl
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
@@ -8,15 +11,37 @@ from sqlalchemy.orm import declarative_base
 # 목록과 업데이트가 다른 DB를 볼 수 있습니다. 운영은 PostgreSQL 권장.
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./streetlamp.db")
 
-# Render Postgres는 보통 'postgresql://' 형태이지만,
-# 설정에 따라 'postgres://' 형태로 올 수도 있어서 둘 다 처리합니다.
-# SQLAlchemy async는 'postgresql+asyncpg://' 가 필요합니다.
-if DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-elif DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+def _prepare_database_url(url: str) -> tuple[str, dict]:
+    """Render Postgres URL을 asyncpg + SQLAlchemy에 맞게 정리합니다."""
+    connect_args: dict = {}
+
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+
+    if not url.startswith("postgresql+asyncpg://"):
+        return url, connect_args
+
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    sslmode = (query.pop("sslmode", [None])[0] or "").lower()
+    # asyncpg는 sslmode 쿼리를 SQLAlchemy 경유 시 받지 못함 → 제거 후 ssl 컨텍스트로 대체
+    for key in ("sslcert", "sslkey", "sslrootcert", "sslcrl"):
+        query.pop(key, None)
+    # Render Postgres는 SSL 필수. sslmode 미포함 URL도 기본으로 SSL 사용
+    if sslmode != "disable":
+        connect_args["ssl"] = ssl.create_default_context()
+
+    clean_query = urlencode({k: v[0] for k, v in query.items() if v and v[0]})
+    clean_url = urlunparse(parsed._replace(query=clean_query))
+    return clean_url, connect_args
+
+
+DATABASE_URL, _connect_args = _prepare_database_url(DATABASE_URL)
+
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args=_connect_args)
 
 AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
