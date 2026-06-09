@@ -64,12 +64,24 @@ async def keep_alive_worker() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await ensure_schema_updates()
-    async with AsyncSessionLocal() as session:
-        await ensure_default_settings(session)
-        await session.commit()
+    last_err: Exception | None = None
+    for attempt in range(1, 6):
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            await ensure_schema_updates()
+            async with AsyncSessionLocal() as session:
+                await ensure_default_settings(session)
+                await session.commit()
+            print(f"[startup] DB ready (attempt {attempt})", flush=True)
+            break
+        except Exception as e:
+            last_err = e
+            print(f"[startup] DB init failed ({attempt}/5): {e}", flush=True)
+            if attempt < 5:
+                await asyncio.sleep(3)
+    else:
+        raise last_err  # type: ignore[misc]
 
     scheduler = AsyncIOScheduler(timezone=ZoneInfo("Asia/Seoul"))
     app.state.scheduler = scheduler
