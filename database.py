@@ -1,7 +1,7 @@
 # database.py
 import os
 import re
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
@@ -11,6 +11,31 @@ _RAW_DATABASE_URL = (
     or os.environ.get("DATABASE_URL", "").strip()
     or "sqlite+aiosqlite:///./streetlamp.db"
 )
+
+
+def _replace_hostname(url: str, new_host: str) -> str:
+    parsed = urlparse(url)
+    user = quote(parsed.username or "", safe="")
+    password = quote(parsed.password or "", safe="")
+    auth = f"{user}:{password}@" if user else ""
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{auth}{new_host}{port}"
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+    )
+
+
+def _to_render_internal_host(host: str) -> tuple[str, str | None]:
+    """
+    External: dpg-xxx-a.singapore-postgres.render.com
+    Internal: dpg-xxx-a  (같은 리전 Render 웹 서비스에서만 DNS 해석됨)
+    """
+    host = host or ""
+    m = re.match(r"^(dpg-[a-z0-9-]+-a)\.[a-z0-9-]+-postgres\.render\.com$", host, re.I)
+    if m:
+        region = host.split(".")[1].replace("-postgres", "")  # singapore
+        return m.group(1), region
+    return host, None
 
 
 def _prepare_database_url(raw: str) -> str:
@@ -24,33 +49,34 @@ def _prepare_database_url(raw: str) -> str:
         return url
 
     parsed = urlparse(url)
-    host = (parsed.hostname or "").lower()
+    host = parsed.hostname or ""
+    internal_host, db_region = _to_render_internal_host(host)
+
+    if internal_host != host:
+        print(
+            f"[db] External→Internal: {host} → {internal_host} "
+            f"(DB region={db_region}, 웹 서비스도 {db_region} 리전이어야 함)",
+            flush=True,
+        )
+        url = _replace_hostname(url, internal_host)
+        parsed = urlparse(url)
+        host = internal_host
+
     qs = parse_qs(parsed.query, keep_blank_values=True)
     qs.pop("sslmode", None)
 
-    # Render Postgres (Internal: dpg-xxx-a / External: dpg-xxx-a.region-postgres.render.com)
-    if host.startswith("dpg-"):
-        qs["sslmode"] = ["require"]
+    if host.startswith("dpg-") and "." not in host:
+        # Render private network (internal hostname)
+        qs["sslmode"] = ["prefer"]
     elif re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", host):
-        print(
-            f"[db] ERROR: DATABASE_URL host is IP ({host}). "
-            "Postgres → Connect → Internal 또는 External Connection String 전체를 붙여넣으세요.",
-            flush=True,
-        )
+        print("[db] ERROR: DATABASE_URL 에 IP가 들어있습니다. Connect 탭 URL 전체를 사용하세요.", flush=True)
         qs["sslmode"] = ["require"]
     else:
         qs["sslmode"] = ["require"]
 
     clean_qs = urlencode({k: v[0] for k, v in qs.items() if v and v[0]})
     final = urlunparse(parsed._replace(query=clean_qs))
-
-    print(f"[db] postgres host={parsed.hostname}", flush=True)
-    if host.startswith("dpg-") and "." not in host:
-        print(
-            "[db] Internal hostname (dpg-xxx-a). "
-            "Name or service not known 이면: 웹 서비스 Settings → Link Postgres DB.",
-            flush=True,
-        )
+    print(f"[db] connect host={parsed.hostname} sslmode={qs.get('sslmode', [''])[0]}", flush=True)
     return final
 
 
