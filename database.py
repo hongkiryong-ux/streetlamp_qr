@@ -1,47 +1,61 @@
 # database.py
 import os
-import ssl
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
 # 기본은 로컬(SQLite). 서버에서는 Render가 DATABASE_URL을 환경변수로 줍니다.
-# 주의: 호스팅에서 SQLite 파일을 쓰면 인스턴스가 둘 이상일 때 DB가 서로 달라
+# 주의: 호스팅에서 SQLite 파일을 쓰면 인스턴스가 둘 이상일 때 DB가 서로 달래
 # 목록과 업데이트가 다른 DB를 볼 수 있습니다. 운영은 PostgreSQL 권장.
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./streetlamp.db")
+_RAW_DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./streetlamp.db")
 
 
-def _prepare_database_url(url: str) -> tuple[str, dict]:
-    """Render Postgres URL을 asyncpg + SQLAlchemy에 맞게 정리합니다."""
-    connect_args: dict = {}
-
-    if url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+def _postgres_asyncpg_dsn(raw_url: str) -> str:
+    """Render Postgres DSN — asyncpg가 sslmode를 직접 처리하도록 postgresql:// 형식."""
+    url = raw_url
+    if url.startswith("postgresql+asyncpg://"):
+        url = url.replace("postgresql+asyncpg://", "postgresql://", 1)
     elif url.startswith("postgres://"):
-        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
-
-    if not url.startswith("postgresql+asyncpg://"):
-        return url, connect_args
+        url = url.replace("postgres://", "postgresql://", 1)
 
     parsed = urlparse(url)
-    query = parse_qs(parsed.query, keep_blank_values=True)
-    sslmode = (query.pop("sslmode", [None])[0] or "").lower()
-    # asyncpg는 sslmode 쿼리를 SQLAlchemy 경유 시 받지 못함 → 제거 후 ssl 컨텍스트로 대체
-    for key in ("sslcert", "sslkey", "sslrootcert", "sslcrl"):
-        query.pop(key, None)
-    # Render Postgres는 SSL 필수. sslmode 미포함 URL도 기본으로 SSL 사용
-    if sslmode != "disable":
-        connect_args["ssl"] = ssl.create_default_context()
-
-    clean_query = urlencode({k: v[0] for k, v in query.items() if v and v[0]})
-    clean_url = urlunparse(parsed._replace(query=clean_query))
-    return clean_url, connect_args
+    if "sslmode=" not in (parsed.query or ""):
+        query = parsed.query
+        query = f"{query}&sslmode=require" if query else "sslmode=require"
+        url = urlunparse(parsed._replace(query=query))
+    return url
 
 
-DATABASE_URL, _connect_args = _prepare_database_url(DATABASE_URL)
+def _create_engine():
+    raw = _RAW_DATABASE_URL
+    lower = raw.lower()
 
-engine = create_async_engine(DATABASE_URL, echo=False, connect_args=_connect_args)
+    if lower.startswith("sqlite"):
+        return create_async_engine(raw, echo=False)
+
+    if "postgres" in lower:
+        dsn = _postgres_asyncpg_dsn(raw)
+
+        async def _asyncpg_connect():
+            import asyncpg
+
+            return await asyncpg.connect(dsn)
+
+        # SQLAlchemy→asyncpg 경유 시 ssl/connect_args 가 무시되는 경우가 있어
+        # asyncpg DSN(sslmode=require)으로 직접 연결합니다.
+        return create_async_engine(
+            "postgresql+asyncpg://",
+            echo=False,
+            async_creator=_asyncpg_connect,
+            pool_pre_ping=True,
+        )
+
+    return create_async_engine(raw, echo=False)
+
+
+DATABASE_URL = _RAW_DATABASE_URL
+engine = _create_engine()
 
 AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
@@ -57,7 +71,7 @@ async def ensure_schema_updates() -> None:
     from sqlalchemy import text
     from sqlalchemy.exc import OperationalError
 
-    url = (os.environ.get("DATABASE_URL") or "").lower()
+    url = (_RAW_DATABASE_URL or "").lower()
     async with engine.begin() as conn:
         if "postgresql" in url or "postgres" in url:
             await conn.execute(
