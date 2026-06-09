@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from sqlalchemy import select, delete, or_, func, cast, String
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -23,6 +24,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import StreamingResponse
 
 import os
+import re
 from io import BytesIO
 from datetime import datetime, timezone, date, time
 from zoneinfo import ZoneInfo
@@ -141,6 +143,27 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.filters["fmt_kst"] = _fmt_kst
 templates.env.filters["fmt_kst_date"] = _fmt_kst_date
+
+REQUEST_TYPE_LABEL = {
+    RequestType.outage.value: "불점등",
+    RequestType.globe_broken.value: "글로브 파손",
+    RequestType.fall_risk.value: "전도 위험",
+    RequestType.low_brightness.value: "조도 불량",
+    RequestType.other.value: "기타",
+}
+REQUEST_STATUS_LABEL = {
+    RequestStatus.received.value: "접수",
+    RequestStatus.in_progress.value: "처리중",
+    RequestStatus.done.value: "완료",
+}
+
+
+def _normalize_phone(value: str) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
+def _normalize_name(value: str) -> str:
+    return (value or "").strip()
 
 
 def _parse_date_yyyy_mm_dd(s: str) -> date | None:
@@ -349,6 +372,75 @@ async def create_request(
         request,
         "request_submitted.html",
         {"lamp_id": lamp_id_val},
+    )
+
+
+@app.get("/status")
+async def status_check_form(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "status_check.html",
+        {
+            "RequestStatus": RequestStatus,
+            "RequestStatusLabel": REQUEST_STATUS_LABEL,
+            "RequestTypeLabel": REQUEST_TYPE_LABEL,
+            "results": None,
+            "error": None,
+            "name_input": "",
+            "phone_input": "",
+        },
+    )
+
+
+@app.post("/status")
+async def status_check_lookup(
+    request: Request,
+    name: str = Form(...),
+    phone: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    name_n = _normalize_name(name)
+    phone_n = _normalize_phone(phone)
+    ctx = {
+        "RequestStatus": RequestStatus,
+        "RequestStatusLabel": REQUEST_STATUS_LABEL,
+        "RequestTypeLabel": REQUEST_TYPE_LABEL,
+        "name_input": name,
+        "phone_input": phone,
+    }
+
+    if not name_n or not phone_n:
+        return templates.TemplateResponse(
+            request,
+            "status_check.html",
+            {**ctx, "results": None, "error": "이름과 전화번호를 모두 입력해 주세요."},
+        )
+
+    result = await db.execute(
+        select(MaintenanceRequest)
+        .options(selectinload(MaintenanceRequest.lamp))
+        .where(func.lower(func.trim(MaintenanceRequest.name)) == name_n.lower())
+        .order_by(MaintenanceRequest.created_at.desc())
+    )
+    rows = [
+        r for r in result.scalars().all() if _normalize_phone(r.phone) == phone_n
+    ]
+
+    if not rows:
+        return templates.TemplateResponse(
+            request,
+            "status_check.html",
+            {
+                **ctx,
+                "results": None,
+                "error": "이름과 전화번호가 일치하는 접수 내역이 없습니다.",
+            },
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "status_check.html",
+        {**ctx, "results": rows, "error": None},
     )
 
 

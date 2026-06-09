@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 streetlamp.db
 qr_codes/
+.env.render

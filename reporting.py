@@ -125,11 +125,16 @@ def _send_via_resend_sync(
     key = os.environ.get("RESEND_API_KEY", "").strip()
     if not key:
         raise ResendApiError("RESEND_API_KEY 가 비어 있습니다.")
-    mail_from = (
-        os.environ.get("RESEND_FROM", "").strip()
-        or os.environ.get("SMTP_FROM", "").strip()
-        or "onboarding@resend.dev"
-    )
+    mail_from = (os.environ.get("RESEND_FROM", "") or "").strip()
+    # Resend는 @gmail.com 등 임의 발신 불가(도메인 검증 필요). SMTP_FROM 을 자동 사용하면 403 남.
+    if not mail_from and os.environ.get("RESEND_USE_SMTP_FROM", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        mail_from = (os.environ.get("SMTP_FROM", "") or "").strip()
+    if not mail_from:
+        mail_from = "onboarding@resend.dev"
     _smtp_log(f"[resend] POST /emails to={to_addr!r} from={mail_from!r} attach={attach_name!r}")
     payload = {
         "from": mail_from,
