@@ -1,6 +1,5 @@
 # database.py
 import os
-import ssl
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
@@ -14,7 +13,7 @@ _RAW_DATABASE_URL = (
 
 
 def _postgres_conninfo(raw: str) -> str:
-    """psycopg libpq 연결 문자열 (External URL 유지, sslmode=require)."""
+    """psycopg libpq 연결 문자열 (External URL + sslmode=require)."""
     url = raw
     if url.startswith("postgresql+psycopg://"):
         url = url.replace("postgresql+psycopg://", "postgresql://", 1)
@@ -26,15 +25,9 @@ def _postgres_conninfo(raw: str) -> str:
     qs = parse_qs(parsed.query, keep_blank_values=True)
     qs.pop("sslmode", None)
 
-    # Internal 짧은 호스트(dpg-xxx-a)는 같은 리전 Render에서만 DNS 됨.
-    # 리전 다르면 External(*.postgres.render.com) URL 을 그대로 써야 함.
     if host.startswith("dpg-") and "." not in host:
         qs["sslmode"] = ["prefer"]
-        print(
-            f"[db] Internal host={host} (웹·DB 리전 같을 때만 동작). "
-            "Name not known 이면 Postgres Connect → External URL 사용.",
-            flush=True,
-        )
+        print(f"[db] Internal host={host}", flush=True)
     else:
         qs["sslmode"] = ["require"]
         print(f"[db] External host={host} sslmode=require", flush=True)
@@ -56,13 +49,9 @@ def _create_engine():
         async def _connect():
             import psycopg
 
-            # Render External Postgres: libpq DSN + SSL (CERT_NONE = sslmode require 수준)
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
+            # conninfo 의 sslmode=require 만 사용 (ssl= 키워드는 psycopg 에서 오류 남)
             return await psycopg.AsyncConnection.connect(
                 conninfo,
-                ssl=ssl_ctx,
                 connect_timeout=15,
             )
 
