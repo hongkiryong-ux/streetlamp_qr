@@ -1,6 +1,6 @@
 # database.py
 import os
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
@@ -12,28 +12,23 @@ _RAW_DATABASE_URL = (
 )
 
 
-def _postgres_conninfo(raw: str) -> str:
-    """psycopg libpq 연결 문자열 (External URL + sslmode=require)."""
+def _parse_postgres_url(raw: str) -> dict:
     url = raw
     if url.startswith("postgresql+psycopg://"):
         url = url.replace("postgresql+psycopg://", "postgresql://", 1)
     elif url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
-
     parsed = urlparse(url)
     host = parsed.hostname or ""
-    qs = parse_qs(parsed.query, keep_blank_values=True)
-    qs.pop("sslmode", None)
-
-    if host.startswith("dpg-") and "." not in host:
-        qs["sslmode"] = ["prefer"]
-        print(f"[db] Internal host={host}", flush=True)
-    else:
-        qs["sslmode"] = ["require"]
-        print(f"[db] External host={host} sslmode=require", flush=True)
-
-    clean_qs = urlencode({k: v[0] for k, v in qs.items() if v and v[0]})
-    return urlunparse(parsed._replace(query=clean_qs))
+    internal = host.split(".")[0] if host.startswith("dpg-") and "." in host else host
+    return {
+        "external_host": host,
+        "internal_host": internal,
+        "port": parsed.port or 5432,
+        "user": unquote(parsed.username or ""),
+        "password": unquote(parsed.password or ""),
+        "dbname": (parsed.path or "/").lstrip("/") or "postgres",
+    }
 
 
 def _create_engine():
@@ -43,26 +38,72 @@ def _create_engine():
     if lower.startswith("sqlite"):
         return create_async_engine(raw, echo=False)
 
-    if "postgres" in lower:
-        conninfo = _postgres_conninfo(raw)
+    if "postgres" not in lower:
+        return create_async_engine(raw, echo=False)
 
-        async def _connect():
-            import psycopg
+    pg = _parse_postgres_url(raw)
+    print(
+        f"[db] external={pg['external_host']} internal={pg['internal_host']}",
+        flush=True,
+    )
 
-            # conninfo 의 sslmode=require 만 사용 (ssl= 키워드는 psycopg 에서 오류 남)
-            return await psycopg.AsyncConnection.connect(
-                conninfo,
-                connect_timeout=15,
-            )
+    async def _connect():
+        import psycopg
 
-        return create_async_engine(
-            "postgresql+psycopg://",
-            async_creator=_connect,
-            pool_pre_ping=True,
-            pool_recycle=3600,
-        )
+        # Render: 같은 리전이면 internal 우선, 아니면 external + sslmode=require
+        attempts: list[tuple[str, str]] = []
+        if pg["internal_host"] != pg["external_host"]:
+            attempts.append((pg["internal_host"], "prefer"))
+        attempts.append((pg["external_host"], "require"))
+        if pg["internal_host"] != pg["external_host"]:
+            attempts.append((pg["external_host"], "prefer"))
 
-    return create_async_engine(raw, echo=False)
+        last_err: Exception | None = None
+        for host, sslmode in attempts:
+            try:
+                print(f"[db] connect try host={host} sslmode={sslmode}", flush=True)
+                return await psycopg.AsyncConnection.connect(
+                    host=host,
+                    port=pg["port"],
+                    user=pg["user"],
+                    password=pg["password"],
+                    dbname=pg["dbname"],
+                    sslmode=sslmode,
+                    connect_timeout=15,
+                )
+            except Exception as e:
+                last_err = e
+                print(f"[db] failed host={host} sslmode={sslmode}: {e}", flush=True)
+
+        # asyncpg fallback (Render SSL)
+        try:
+            import asyncpg
+
+            for host, _ in attempts[:2]:
+                print(f"[db] asyncpg fallback host={host} ssl=require", flush=True)
+                return await asyncpg.connect(
+                    host=host,
+                    port=pg["port"],
+                    user=pg["user"],
+                    password=pg["password"],
+                    database=pg["dbname"],
+                    ssl="require",
+                    timeout=15,
+                )
+        except Exception as e:
+            print(f"[db] asyncpg fallback failed: {e}", flush=True)
+            if last_err:
+                raise last_err from e
+            raise
+
+        raise last_err  # type: ignore[misc]
+
+    return create_async_engine(
+        "postgresql+psycopg://",
+        async_creator=_connect,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+    )
 
 
 DATABASE_URL = _RAW_DATABASE_URL
