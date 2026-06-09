@@ -106,6 +106,19 @@
   {% else %}
     <div class="admin-table-wrap">
     <table class="table admin-requests-table">
+      <colgroup>
+        <col class="cg-datetime" />
+        <col class="cg-datetime" />
+        <col class="cg-narrow" />
+        <col class="cg-name" />
+        <col class="cg-phone" />
+        <col class="cg-type" />
+        <col class="cg-content" />
+        <col class="cg-work" />
+        {% if not is_guest %}
+        <col class="cg-action" />
+        {% endif %}
+      </colgroup>
       <thead>
         <tr>
           <th class="col-datetime">접수일</th>
