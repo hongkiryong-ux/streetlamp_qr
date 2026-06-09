@@ -367,6 +367,26 @@ async def create_request(
     )
     db.add(new_req)
     await db.commit()
+    await db.refresh(new_req)
+
+    async def _sms_after_request() -> None:
+        try:
+            async with AsyncSessionLocal() as sms_session:
+                from sms_notify import send_new_request_sms_alert
+
+                await send_new_request_sms_alert(
+                    sms_session,
+                    req_id=new_req.id,
+                    lamp_id=lamp_id_val,
+                    name=name,
+                    phone=phone,
+                    request_type=request_type,
+                    content=content,
+                )
+        except Exception as e:
+            print(f"[solapi] background task fail: {e}", flush=True)
+
+    asyncio.create_task(_sms_after_request())
 
     return templates.TemplateResponse(
         request,
@@ -506,6 +526,7 @@ def admin_paths(request: Request) -> dict[str, str]:
         "path_requests_remove": admin_app_path(request, "/admin/requests/remove-row"),
         "path_settings": admin_app_path(request, "/admin/settings"),
         "path_settings_test_email": admin_app_path(request, "/admin/settings/test-email"),
+        "path_settings_test_sms": admin_app_path(request, "/admin/settings/test-sms"),
     }
 
 
@@ -658,6 +679,8 @@ async def admin_settings_post(request: Request):
         raise HTTPException(status_code=400, detail="숫자 형식이 올바르지 않습니다.")
 
     use_internal = form.get("use_internal_daily_scheduler") in ("1", "on", "true", "yes")
+    alert_sms_enabled = form.get("alert_sms_enabled") in ("1", "on", "true", "yes")
+    alert_sms_phones = (form.get("alert_sms_phones") or "").strip()
 
     async with AsyncSessionLocal() as session:
         await set_setting(session, "report_email", report_email)
@@ -665,6 +688,8 @@ async def admin_settings_post(request: Request):
         await set_setting(session, "report_minute_kst", str(max(0, min(59, report_minute_kst))))
         await set_setting(session, "keep_alive_minutes", str(max(0, min(1440, keep_alive_minutes))))
         await set_setting(session, "use_internal_daily_scheduler", "1" if use_internal else "0")
+        await set_setting(session, "alert_sms_enabled", "1" if alert_sms_enabled else "0")
+        await set_setting(session, "alert_sms_phones", alert_sms_phones)
         await session.commit()
 
     scheduler = request.app.state.scheduler
@@ -701,6 +726,37 @@ async def admin_settings_test_email(request: Request):
         msg = f"테스트 메일 처리 중 오류 ({type(e).__name__}): {e}"
     preview = (msg or "").replace("\n", " ")[:400]
     print(f"[test-email] {preview}", flush=True)
+    request.session["admin_notice"] = msg
+    return RedirectResponse(
+        url=admin_app_path(request, "/admin/settings"), status_code=302
+    )
+
+
+@app.get("/admin/settings/test-sms")
+async def admin_settings_test_sms_get(request: Request):
+    return RedirectResponse(
+        url=admin_app_path(request, "/admin/settings"), status_code=302
+    )
+
+
+@app.post("/admin/settings/test-sms")
+async def admin_settings_test_sms(request: Request):
+    if not is_admin_logged_in(request):
+        if is_guest_logged_in(request):
+            base = admin_app_path(request, "/admin/requests")
+            return RedirectResponse(url=f"{base}?flash=guest_restricted", status_code=303)
+        return RedirectResponse(
+            url=admin_app_path(request, "/admin/login"), status_code=302
+        )
+    try:
+        async with AsyncSessionLocal() as session:
+            from sms_notify import run_test_sms_pipeline
+
+            msg = await run_test_sms_pipeline(session)
+    except Exception as e:
+        msg = f"SMS 테스트 중 오류 ({type(e).__name__}): {e}"
+    preview = (msg or "").replace("\n", " ")[:400]
+    print(f"[test-sms] {preview}", flush=True)
     request.session["admin_notice"] = msg
     return RedirectResponse(
         url=admin_app_path(request, "/admin/settings"), status_code=302

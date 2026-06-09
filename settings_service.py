@@ -11,6 +11,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "keep_alive_minutes": "0",
     # "1"이면 서버가 살아 있는 동안 APScheduler로 매일 메일 시도 (Render 수면 시에는 실행 안 됨)
     "use_internal_daily_scheduler": "1",
+    # 신규 접수 SMS (Solapi)
+    "alert_sms_enabled": "1",
+    "alert_sms_phones": "010781704563",
 }
 
 
