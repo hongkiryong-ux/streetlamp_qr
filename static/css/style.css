@@ -245,7 +245,7 @@ body {
 .table.admin-requests-table {
   width: 100%;
   min-width: 880px;
-  table-layout: fixed;
+  table-layout: auto;
   font-size: 0.82rem;
 }
 
@@ -282,22 +282,28 @@ body {
   min-width: 3em;
 }
 
-/* 전화번호: 글자 수에 맞게 최소 너비 */
+/* 전화번호: 010-1234-5678 기준, 글자 깨짐 없이 한 줄 */
 .table.admin-requests-table .col-phone {
   width: 1%;
+  min-width: 13ch;
   white-space: nowrap;
+  overflow: visible;
+  word-break: keep-all;
 }
 
-/* 유형: 라벨 길이에 맞게 최소 너비 (글로브 파손 등) */
+/* 유형: 가장 긴 라벨(글로브 파손) 기준, 글자 깨짐 없이 한 줄 */
 .table.admin-requests-table .col-type {
   width: 1%;
+  min-width: 6.5em;
   white-space: nowrap;
+  overflow: visible;
+  word-break: keep-all;
 }
 
 /* 민원인 작성 내용: 넓게 + 여러 줄 표시 */
 .table.admin-requests-table .col-content {
-  width: 34%;
-  min-width: 11rem;
+  width: auto;
+  min-width: 12rem;
   white-space: normal;
   word-break: break-word;
   line-height: 1.4;
@@ -308,6 +314,7 @@ body {
 .table.admin-requests-table .col-work-combined {
   width: 18%;
   min-width: 10rem;
+  max-width: 16rem;
   vertical-align: top;
 }
 
