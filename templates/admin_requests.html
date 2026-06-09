@@ -135,8 +135,8 @@
           <td class="col-narrow">{{ r.lamp_id }}</td>
           <td class="col-name ellipsis" title="{{ r.name }}">{{ r.name }}</td>
           <td class="col-phone nowrap">{{ r.phone }}</td>
-          <td class="col-type ellipsis" title="{{ RequestTypeLabel[r.request_type.value] }}">{{ RequestTypeLabel[r.request_type.value] }}</td>
-          <td class="col-content ellipsis" title="{{ r.content or '' }}">{{ r.content or "" }}</td>
+          <td class="col-type nowrap" title="{{ RequestTypeLabel[r.request_type.value] }}">{{ RequestTypeLabel[r.request_type.value] }}</td>
+          <td class="col-content" title="{{ r.content or '' }}">{{ r.content or "" }}</td>
           <td class="col-work-combined status-memo-combined">
             <form method="post" action="{{ path_requests_list }}" class="status-memo-form" enctype="application/x-www-form-urlencoded">
               <input type="hidden" name="mr_id" value="{{ r.id }}" />

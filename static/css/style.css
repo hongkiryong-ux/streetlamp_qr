@@ -103,6 +103,10 @@ body {
   margin: 0 auto;
 }
 
+.main:has(.admin-requests-table) {
+  max-width: min(1240px, 98vw);
+}
+
 .footer {
   text-align: center;
   padding: 0.5rem;
@@ -240,7 +244,7 @@ body {
 
 .table.admin-requests-table {
   width: 100%;
-  min-width: 720px;
+  min-width: 880px;
   table-layout: fixed;
   font-size: 0.82rem;
 }
@@ -278,27 +282,32 @@ body {
   min-width: 3em;
 }
 
-/* 전화번호 11자리(01012345678) */
+/* 전화번호: 글자 수에 맞게 최소 너비 */
 .table.admin-requests-table .col-phone {
-  width: 11ch;
-  max-width: 11ch;
-  min-width: 11ch;
+  width: 1%;
+  white-space: nowrap;
 }
 
+/* 유형: 라벨 길이에 맞게 최소 너비 (글로브 파손 등) */
 .table.admin-requests-table .col-type {
-  width: 5rem;
-  max-width: 6rem;
+  width: 1%;
+  white-space: nowrap;
 }
 
+/* 민원인 작성 내용: 넓게 + 여러 줄 표시 */
 .table.admin-requests-table .col-content {
-  width: auto;
-  min-width: 5rem;
+  width: 34%;
+  min-width: 11rem;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
+  vertical-align: top;
 }
 
 /* 접수/처리중/완료 + 비고 입력 한 열 */
 .table.admin-requests-table .col-work-combined {
-  width: 22%;
-  min-width: 11rem;
+  width: 18%;
+  min-width: 10rem;
   vertical-align: top;
 }
 
