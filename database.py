@@ -1,13 +1,11 @@
 # database.py
 import os
 import re
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
-# 기본은 로컬(SQLite). 서버에서는 Render가 DATABASE_URL을 환경변수로 줍니다.
-# Render 웹 서비스 → Postgres 는 **Internal Database URL** 사용 (공인 IP X).
 _RAW_DATABASE_URL = (
     os.environ.get("DATABASE_INTERNAL_URL", "").strip()
     or os.environ.get("DATABASE_URL", "").strip()
@@ -15,11 +13,35 @@ _RAW_DATABASE_URL = (
 )
 
 
-def _is_render_external_postgres_host(host: str) -> bool:
-    host = (host or "").lower()
+def _replace_hostname(url: str, new_host: str) -> str:
+    parsed = urlparse(url)
+    user = quote(parsed.username or "", safe="")
+    password = quote(parsed.password or "", safe="")
+    auth = f"{user}:{password}@" if user else ""
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{auth}{new_host}{port}"
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+    )
+
+
+def _normalize_render_postgres_host(host: str) -> str:
+    """External 호스트(dpg-xxx-a.region-postgres.render.com) → Internal(dpg-xxx-a)."""
+    host = host or ""
+    if host.startswith("dpg-") and ".render.com" in host:
+        internal = host.split(".")[0]
+        print(
+            f"[db] Render Postgres external→internal: {host} → {internal}",
+            flush=True,
+        )
+        return internal
     if re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", host):
-        return True
-    return ".postgres.render.com" in host or host.endswith(".render.com")
+        print(
+            f"[db] ERROR: DATABASE_URL host is public IP ({host}). "
+            "Render → Postgres → Connect → Internal Connection String 으로 교체하세요.",
+            flush=True,
+        )
+    return host
 
 
 def _prepare_database_url(raw: str) -> str:
@@ -33,20 +55,15 @@ def _prepare_database_url(raw: str) -> str:
         return url
 
     parsed = urlparse(url)
-    host = parsed.hostname or ""
+    host = _normalize_render_postgres_host(parsed.hostname or "")
+    if host != (parsed.hostname or ""):
+        url = _replace_hostname(url, host)
+        parsed = urlparse(url)
+
     qs = parse_qs(parsed.query, keep_blank_values=True)
     qs.pop("sslmode", None)
 
-    if _is_render_external_postgres_host(host):
-        # 외부 URL(공인 IP / *.postgres.render.com) — SSL 협상 실패가 잦음
-        qs["sslmode"] = ["require"]
-        print(
-            f"[db] WARNING: Postgres host={host!r} looks EXTERNAL. "
-            "Render 대시보드에서 Postgres → Connect → Internal URL 로 DATABASE_URL 을 바꾸세요.",
-            flush=True,
-        )
-    elif host.startswith("dpg-"):
-        # Render internal: dpg-xxxxx-a
+    if (parsed.hostname or "").startswith("dpg-"):
         qs["sslmode"] = ["prefer"]
     else:
         qs["sslmode"] = ["require"]
@@ -58,14 +75,14 @@ def _prepare_database_url(raw: str) -> str:
 DATABASE_URL = _prepare_database_url(_RAW_DATABASE_URL)
 
 if DATABASE_URL.startswith("postgresql+psycopg://"):
-    _host = urlparse(DATABASE_URL).hostname or "?"
-    print(f"[db] postgres host={_host}", flush=True)
+    print(f"[db] postgres host={urlparse(DATABASE_URL).hostname}", flush=True)
 
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
-    connect_args={"connect_timeout": 10},
+    pool_recycle=3600,
+    connect_args={"connect_timeout": 15},
 )
 
 AsyncSessionLocal = async_sessionmaker(
