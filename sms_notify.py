@@ -183,7 +183,7 @@ async def run_test_sms_pipeline(session) -> str:
             "Render → Environment 에 아래 3개를 추가하세요.\n"
             "SOLAPI_API_KEY= (console.solapi.com → API Key)\n"
             "SOLAPI_API_SECRET=\n"
-            "SOLAPI_SENDER=010781704563 (Solapi에 등록한 발신번호, 하이픈 없이)"
+            "SOLAPI_SENDER=01071704563 (Solapi에 등록한 발신번호, 하이픈 없이)"
         )
     except SolapiApiError as e:
         return f"Solapi 발송 실패: {e}"

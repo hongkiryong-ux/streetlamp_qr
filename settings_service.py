@@ -13,7 +13,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "use_internal_daily_scheduler": "1",
     # 신규 접수 SMS (Solapi)
     "alert_sms_enabled": "1",
-    "alert_sms_phones": "010781704563",
+    "alert_sms_phones": "01071704563",
 }
 
 
