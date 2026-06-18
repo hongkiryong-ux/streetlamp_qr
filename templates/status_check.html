@@ -34,7 +34,7 @@
           <span class="status-item-id">접수번호 {{ r.id }}</span>
         </div>
         <ul class="status-item-meta">
-          <li><span>가로등</span> No.{{ r.lamp_id }}{% if r.lamp and r.lamp.location %} · {{ r.lamp.location }}{% endif %}</li>
+          <li><span>가로등</span> {{ r.lamp.code if r.lamp and r.lamp.code else r.lamp_id }}{% if r.lamp and r.lamp.location %} · {{ r.lamp.location }}{% endif %}</li>
           <li><span>유형</span> {{ RequestTypeLabel[r.request_type.value] }}</li>
           <li><span>진행내용</span> {{ r.work_memo or "아직 등록된 내용이 없습니다." }}</li>
           <li><span>접수일</span> {{ r.created_at | fmt_kst }}</li>

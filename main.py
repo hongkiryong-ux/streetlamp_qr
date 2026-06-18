@@ -28,7 +28,7 @@ import re
 from io import BytesIO
 from datetime import datetime, timezone, date, time
 from zoneinfo import ZoneInfo
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, unquote, quote
 
 import openpyxl
 
@@ -143,6 +143,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.filters["fmt_kst"] = _fmt_kst
 templates.env.filters["fmt_kst_date"] = _fmt_kst_date
+templates.env.filters["urlencode_path"] = lambda s: quote(str(s or ""), safe="")
 
 REQUEST_TYPE_LABEL = {
     RequestType.outage.value: "불점등",
@@ -164,6 +165,27 @@ def _normalize_phone(value: str) -> str:
 
 def _normalize_name(value: str) -> str:
     return (value or "").strip()
+
+
+async def _get_lamp_by_identifier(
+    db: AsyncSession, identifier: str
+) -> Lamp | None:
+    """QR 코드(문자열) 또는 예전 숫자 id 로 가로등 조회."""
+    key = unquote((identifier or "").strip())
+    if not key:
+        return None
+    result = await db.execute(select(Lamp).where(Lamp.code == key))
+    lamp = result.scalar_one_or_none()
+    if lamp:
+        return lamp
+    if key.isdigit():
+        result = await db.execute(select(Lamp).where(Lamp.id == int(key)))
+        return result.scalar_one_or_none()
+    return None
+
+
+def _lamp_display_code(lamp: Lamp) -> str:
+    return (lamp.code or str(lamp.id)).strip()
 
 
 def _parse_date_yyyy_mm_dd(s: str) -> date | None:
@@ -221,9 +243,12 @@ def _admin_requests_select(
         ).replace(tzinfo=None)
         stmt = stmt.where(MaintenanceRequest.created_at <= utc_end)
 
-    # 가로등 번호 (정확히 일치)
-    if lamp_s.isdigit():
-        stmt = stmt.where(MaintenanceRequest.lamp_id == int(lamp_s))
+    # 가로등 코드/번호 (정확히 일치)
+    if lamp_s:
+        if lamp_s.isdigit():
+            stmt = stmt.where(MaintenanceRequest.lamp_id == int(lamp_s))
+        else:
+            stmt = stmt.join(Lamp).where(Lamp.code == lamp_s)
 
     # 정비 유형
     if (request_type_filter or "").strip():
@@ -259,10 +284,13 @@ def _admin_requests_select(
                 func.lower(MaintenanceRequest.phone).like(pattern),
                 func.lower(func.coalesce(MaintenanceRequest.content, "")).like(pattern),
                 cast(MaintenanceRequest.lamp_id, String).like(f"%{q_strip}%"),
+                MaintenanceRequest.lamp.has(
+                    func.lower(func.coalesce(Lamp.code, "")).like(pattern)
+                ),
             )
         )
 
-    return stmt
+    return stmt.options(selectinload(MaintenanceRequest.lamp))
 
 
 def _admin_export_query_string(
@@ -315,15 +343,14 @@ async def read_root(request: Request):
     )
 
 
-# 특정 가로등 페이지
-@app.get("/lamp/{lamp_id}")
+# 특정 가로등 페이지 (코드: GL-1, 명-1 등 / 예전 숫자 id 도 가능)
+@app.get("/lamp/{lamp_code:path}")
 async def lamp_detail(
     request: Request,
-    lamp_id: int,
+    lamp_code: str,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Lamp).where(Lamp.id == lamp_id))
-    lamp = result.scalar_one_or_none()
+    lamp = await _get_lamp_by_identifier(db, lamp_code)
     if not lamp:
         raise HTTPException(status_code=404, detail="해당 가로등을 찾을 수 없습니다.")
 
@@ -332,34 +359,32 @@ async def lamp_detail(
         "lamp_detail.html",
         {
             "lamp": lamp,
+            "lamp_code": _lamp_display_code(lamp),
             "request_types": RequestType,
         },
     )
 
 
 # 정비 의뢰 접수 처리
-@app.post("/lamp/{lamp_id}/request")
+@app.post("/lamp/{lamp_code:path}/request")
 async def create_request(
     request: Request,
-    lamp_id: int,
+    lamp_code: str,
     name: str = Form(...),
     phone: str = Form(...),
     request_type: RequestType = Form(...),
     content: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
-    # 가로등 존재 확인
-    result = await db.execute(select(Lamp).where(Lamp.id == lamp_id))
-    lamp = result.scalar_one_or_none()
+    lamp = await _get_lamp_by_identifier(db, lamp_code)
     if not lamp:
         raise HTTPException(status_code=404, detail="해당 가로등을 찾을 수 없습니다.")
 
-    # 템플릿에는 ORM 객체를 넘기지 않음: 응답 렌더 시점에 DB 세션이 닫히면
-    # Jinja가 lamp 필드 접근 시 lazy-load → MissingGreenlet(500) 발생할 수 있음
-    lamp_id_val = lamp.id
+    lamp_code_val = _lamp_display_code(lamp)
+    lamp_pk = lamp.id
 
     new_req = MaintenanceRequest(
-        lamp_id=lamp_id,
+        lamp_id=lamp_pk,
         name=name,
         phone=phone,
         request_type=request_type,
@@ -377,7 +402,8 @@ async def create_request(
                 await send_new_request_sms_alert(
                     sms_session,
                     req_id=new_req.id,
-                    lamp_id=lamp_id_val,
+                    lamp_id=lamp_pk,
+                    lamp_code=lamp_code_val,
                     name=name,
                     phone=phone,
                     request_type=request_type,
@@ -391,7 +417,7 @@ async def create_request(
     return templates.TemplateResponse(
         request,
         "request_submitted.html",
-        {"lamp_id": lamp_id_val},
+        {"lamp_id": lamp_code_val},
     )
 
 

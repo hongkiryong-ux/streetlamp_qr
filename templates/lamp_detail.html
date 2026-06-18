@@ -3,7 +3,7 @@
 {% block content %}
 <section class="card">
   <h2>가로등 정보</h2>
-  <p><strong>가로등 No:</strong> {{ lamp.id }}</p>
+  <p><strong>가로등 No:</strong> {{ lamp_code or lamp.code or lamp.id }}</p>
   {% if lamp.description %}
     <p><strong>설명:</strong> {{ lamp.description }}</p>
   {% endif %}
@@ -11,7 +11,7 @@
 
 <section class="card">
   <h2>정비 의뢰</h2>
-  <form action="/lamp/{{ lamp.id }}/request" method="post" class="form">
+  <form action="/lamp/{{ (lamp_code or lamp.code or lamp.id) | urlencode_path }}/request" method="post" class="form">
     <label>
       이름 (필수)
       <input type="text" name="name" required />

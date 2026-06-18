@@ -17,6 +17,7 @@ class RequestType(str, enum.Enum):
 class Lamp(Base):
     __tablename__ = "lamps"
     id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(64), unique=True, index=True, nullable=True)  # QR용 코드 e.g. GL-1, 명-1
     location = Column(String(255), nullable=False)   # 위치 이름
     description = Column(Text, nullable=True)        # 상세 설명 (선택)
     requests = relationship("MaintenanceRequest", back_populates="lamp")

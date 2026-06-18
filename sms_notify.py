@@ -68,7 +68,7 @@ def _solapi_authorization(api_key: str, api_secret: str) -> str:
 def build_new_request_sms_text(
     *,
     req_id: int,
-    lamp_id: int,
+    lamp_code: str,
     name: str,
     phone: str,
     request_type: RequestType,
@@ -77,7 +77,7 @@ def build_new_request_sms_text(
     label = REQUEST_TYPE_LABEL.get(request_type.value, request_type.value)
     lines = [
         f"[가로등정비] 신규접수 #{req_id}",
-        f"No.{lamp_id} {name.strip()}",
+        f"No.{lamp_code} {name.strip()}",
         f"유형:{label}",
         f"연락:{phone.strip()}",
     ]
@@ -125,6 +125,7 @@ async def send_new_request_sms_alert(
     *,
     req_id: int,
     lamp_id: int,
+    lamp_code: str | None = None,
     name: str,
     phone: str,
     request_type: RequestType,
@@ -147,7 +148,7 @@ async def send_new_request_sms_alert(
 
         text = build_new_request_sms_text(
             req_id=req_id,
-            lamp_id=lamp_id,
+            lamp_code=lamp_code or str(lamp_id),
             name=name,
             phone=phone,
             request_type=request_type,

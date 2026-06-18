@@ -136,6 +136,14 @@ async def ensure_schema_updates() -> None:
                     "ALTER TABLE maintenance_requests ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP"
                 )
             )
+            await conn.execute(
+                text("ALTER TABLE lamps ADD COLUMN IF NOT EXISTS code VARCHAR(64)")
+            )
+            await conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_lamps_code ON lamps (code) WHERE code IS NOT NULL"
+                )
+            )
         else:
             try:
                 await conn.execute(
@@ -147,6 +155,18 @@ async def ensure_schema_updates() -> None:
                 await conn.execute(
                     text(
                         "ALTER TABLE maintenance_requests ADD COLUMN completed_at DATETIME"
+                    )
+                )
+            except OperationalError:
+                pass
+            try:
+                await conn.execute(text("ALTER TABLE lamps ADD COLUMN code VARCHAR(64)"))
+            except OperationalError:
+                pass
+            try:
+                await conn.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ix_lamps_code ON lamps (code)"
                     )
                 )
             except OperationalError:

@@ -43,8 +43,8 @@
       <legend>세부 조건</legend>
       <div class="filter-row">
         <label>
-          가로등 No
-          <input type="number" name="lamp_id" value="{{ lamp_id }}" min="1" placeholder="예: 12" />
+          가로등 코드
+          <input type="text" name="lamp_id" value="{{ lamp_id }}" placeholder="예: GL-1, 명-1" />
         </label>
         <label>
           정비 유형
@@ -123,7 +123,7 @@
         <tr>
           <th class="col-datetime">접수일</th>
           <th class="col-datetime">완료일</th>
-          <th class="col-narrow">가로등 No</th>
+          <th class="col-narrow">가로등</th>
           <th class="col-name">이름</th>
           <th class="col-phone">전화</th>
           <th class="col-type">유형</th>
@@ -145,7 +145,7 @@
               —
             {% endif %}
           </td>
-          <td class="col-narrow">{{ r.lamp_id }}</td>
+          <td class="col-narrow">{{ r.lamp.code if r.lamp and r.lamp.code else r.lamp_id }}</td>
           <td class="col-name ellipsis" title="{{ r.name }}">{{ r.name }}</td>
           <td class="col-phone nowrap">{{ r.phone }}</td>
           <td class="col-type nowrap" title="{{ RequestTypeLabel[r.request_type.value] }}">{{ RequestTypeLabel[r.request_type.value] }}</td>
