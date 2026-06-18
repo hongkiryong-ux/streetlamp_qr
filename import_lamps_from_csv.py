@@ -64,6 +64,38 @@ async def import_lamps() -> int:
     return added
 
 
+async def import_lamps_if_needed() -> int:
+    """CSV에 있는 코드가 DB에 없을 때만 import (기동마다 전체 스캔 방지)."""
+    if not CSV_PATH.is_file():
+        print(f"[lamp-import] skip: no CSV at {CSV_PATH}", flush=True)
+        return 0
+
+    expected = 0
+    with CSV_PATH.open(encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            if (row.get("code") or "").strip():
+                expected += 1
+    if expected <= 0:
+        return 0
+
+    from sqlalchemy import func
+
+    async with AsyncSessionLocal() as session:
+        n = await session.scalar(
+            select(func.count()).select_from(Lamp).where(Lamp.code.isnot(None))
+        )
+        if (n or 0) >= expected:
+            print(
+                f"[lamp-import] skip: DB has {n} coded lamps (>={expected})",
+                flush=True,
+            )
+            return 0
+
+    added = await import_lamps()
+    print(f"[lamp-import] done: {added} new lamps (expected {expected})", flush=True)
+    return added
+
+
 if __name__ == "__main__":
     n = asyncio.run(import_lamps())
     print(f"완료. 새로 등록된 가로등: {n}개 (CSV: {CSV_PATH})")

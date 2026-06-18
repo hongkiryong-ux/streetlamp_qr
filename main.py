@@ -75,6 +75,9 @@ async def lifespan(app: FastAPI):
             async with AsyncSessionLocal() as session:
                 await ensure_default_settings(session)
                 await session.commit()
+            from import_lamps_from_csv import import_lamps_if_needed
+
+            await import_lamps_if_needed()
             print(f"[startup] DB ready (attempt {attempt})", flush=True)
             break
         except Exception as e:
@@ -654,6 +657,27 @@ async def cron_daily_report(secret: str | None = None):
         to_email = await get_setting(session, "report_email")
         msg = await run_daily_report_pipeline(session, to_email)
     return {"ok": True, "detail": msg}
+
+
+@app.get("/cron/import-lamps")
+async def cron_import_lamps(secret: str | None = None):
+    """배포 후 가로등 CSV를 DB에 넣을 때 (외부 Cron 또는 브라우저 1회 호출)."""
+    expected = (os.environ.get("CRON_SECRET") or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="환경변수 CRON_SECRET 이 설정되지 않았습니다.",
+        )
+    if not secret:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    digest_s = hashlib.sha256(secret.encode("utf-8")).digest()
+    digest_e = hashlib.sha256(expected.encode("utf-8")).digest()
+    if not secrets.compare_digest(digest_s, digest_e):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from import_lamps_from_csv import import_lamps
+
+    added = await import_lamps()
+    return {"ok": True, "added": added}
 
 
 @app.get("/admin/settings")
