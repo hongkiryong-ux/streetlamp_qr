@@ -30,5 +30,11 @@ async def init():
 
         await session.commit()
 
+    async with AsyncSessionLocal() as session:
+        from import_lamps_from_csv import _sync_lamps_id_sequence
+
+        await _sync_lamps_id_sequence(session)
+        await session.commit()
+
 if __name__ == "__main__":
     asyncio.run(init())

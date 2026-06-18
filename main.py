@@ -75,9 +75,15 @@ async def lifespan(app: FastAPI):
             async with AsyncSessionLocal() as session:
                 await ensure_default_settings(session)
                 await session.commit()
-            from import_lamps_from_csv import import_lamps_if_needed
+            try:
+                from import_lamps_from_csv import import_lamps_if_needed
 
-            await import_lamps_if_needed()
+                await import_lamps_if_needed()
+            except Exception as e:
+                print(
+                    f"[startup] lamp import failed (non-fatal): {e}",
+                    flush=True,
+                )
             print(f"[startup] DB ready (attempt {attempt})", flush=True)
             break
         except Exception as e:
