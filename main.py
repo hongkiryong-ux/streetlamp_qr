@@ -170,6 +170,27 @@ def _normalize_name(value: str) -> str:
     return (value or "").strip()
 
 
+_lamp_import_lock = asyncio.Lock()
+_lamp_import_done = False
+
+
+async def _ensure_lamps_from_csv_once() -> None:
+    """첫 /lamp 접속 시 CSV→DB (Render Shell 없이 배포만으로 동작)."""
+    global _lamp_import_done
+    if _lamp_import_done:
+        return
+    async with _lamp_import_lock:
+        if _lamp_import_done:
+            return
+        try:
+            from import_lamps_from_csv import import_lamps_if_needed
+
+            await import_lamps_if_needed()
+            _lamp_import_done = True
+        except Exception as e:
+            print(f"[lamp-import] on-demand failed: {e}", flush=True)
+
+
 async def _get_lamp_by_identifier(
     db: AsyncSession, identifier: str
 ) -> Lamp | None:
@@ -353,6 +374,7 @@ async def lamp_detail(
     lamp_code: str,
     db: AsyncSession = Depends(get_db),
 ):
+    await _ensure_lamps_from_csv_once()
     lamp = await _get_lamp_by_identifier(db, lamp_code)
     if not lamp:
         raise HTTPException(status_code=404, detail="해당 가로등을 찾을 수 없습니다.")
@@ -379,6 +401,7 @@ async def create_request(
     content: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
+    await _ensure_lamps_from_csv_once()
     lamp = await _get_lamp_by_identifier(db, lamp_code)
     if not lamp:
         raise HTTPException(status_code=404, detail="해당 가로등을 찾을 수 없습니다.")
