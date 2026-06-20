@@ -22,8 +22,8 @@
     </label>
 
     <label>
-      전화번호 (필수)
-      <input type="tel" name="phone" required value="{{ phone_input or '' }}" />
+      전화번호 (필수:끝 4자리)
+      <input type="tel" name="phone" required maxlength="4" inputmode="numeric" pattern="[0-9]{4}" placeholder="예: 4567" value="{{ phone_input or '' }}" />
     </label>
 
     <label>
@@ -40,11 +40,6 @@
     <label>
       상세 내용 (선택)
       <textarea name="content" rows="3" placeholder="추가로 설명하고 싶은 내용이 있으면 적어주세요.">{{ content_input or '' }}</textarea>
-    </label>
-
-    <label class="consent-checkbox">
-      <input type="checkbox" name="privacy_consent" value="1" required {% if privacy_consent_checked %}checked{% endif %} />
-      개인정보 수집·이용에 동의합니다
     </label>
 
     <button type="submit" class="btn-primary">정비 의뢰 보내기</button>

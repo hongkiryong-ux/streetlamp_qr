@@ -168,8 +168,17 @@ REQUEST_STATUS_LABEL = {
 }
 
 
-def _normalize_phone(value: str) -> str:
-    return re.sub(r"\D", "", value or "")
+def _phone_last4(value: str) -> str:
+    """저장값이 4자리 또는 전체 번호 모두 끝 4자리로 비교."""
+    digits = re.sub(r"\D", "", value or "")
+    return digits[-4:] if len(digits) >= 4 else digits
+
+
+def _validate_phone_last4(value: str) -> str | None:
+    digits = re.sub(r"\D", "", value or "")
+    if len(digits) != 4:
+        return None
+    return digits
 
 
 def _normalize_name(value: str) -> str:
@@ -182,10 +191,6 @@ ANONYMOUS_SUBMITTER_NAME = "익명"
 def _resolve_submitter_name(name: str) -> str:
     n = _normalize_name(name)
     return n if n else ANONYMOUS_SUBMITTER_NAME
-
-
-def _privacy_consent_given(value: str) -> bool:
-    return (value or "").strip().lower() in ("1", "on", "true", "yes")
 
 
 _lamp_import_lock = asyncio.Lock()
@@ -409,7 +414,6 @@ async def lamp_detail(
             "phone_input": "",
             "content_input": "",
             "request_type_input": "",
-            "privacy_consent_checked": False,
         },
     )
 
@@ -422,7 +426,6 @@ def _lamp_request_form_ctx(
     phone_input: str = "",
     content_input: str = "",
     request_type_input: str = "",
-    privacy_consent_checked: bool = False,
 ) -> dict:
     return {
         "lamp": lamp,
@@ -433,7 +436,6 @@ def _lamp_request_form_ctx(
         "phone_input": phone_input,
         "content_input": content_input,
         "request_type_input": request_type_input,
-        "privacy_consent_checked": privacy_consent_checked,
     }
 
 
@@ -446,7 +448,6 @@ async def create_request(
     phone: str = Form(...),
     request_type: RequestType = Form(...),
     content: str = Form(""),
-    privacy_consent: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_lamps_from_csv_once()
@@ -454,18 +455,18 @@ async def create_request(
     if not lamp:
         raise HTTPException(status_code=404, detail="해당 가로등을 찾을 수 없습니다.")
 
-    if not _privacy_consent_given(privacy_consent):
+    phone_last4 = _validate_phone_last4(phone)
+    if not phone_last4:
         return templates.TemplateResponse(
             request,
             "lamp_detail.html",
             _lamp_request_form_ctx(
                 lamp,
-                form_error="개인정보 수집·이용에 동의해 주세요.",
+                form_error="전화번호 끝 4자리를 숫자 4개로 입력해 주세요.",
                 name_input=name,
                 phone_input=phone,
                 content_input=content,
                 request_type_input=request_type.value,
-                privacy_consent_checked=False,
             ),
             status_code=400,
         )
@@ -477,7 +478,7 @@ async def create_request(
     new_req = MaintenanceRequest(
         lamp_id=lamp_pk,
         name=name_val,
-        phone=phone,
+        phone=phone_last4,
         request_type=request_type,
         content=content,
     )
@@ -537,7 +538,7 @@ async def status_check_lookup(
     db: AsyncSession = Depends(get_db),
 ):
     name_n = _resolve_submitter_name(name)
-    phone_n = _normalize_phone(phone)
+    phone_last4 = _validate_phone_last4(phone)
     ctx = {
         "RequestStatus": RequestStatus,
         "RequestStatusLabel": REQUEST_STATUS_LABEL,
@@ -546,11 +547,11 @@ async def status_check_lookup(
         "phone_input": phone,
     }
 
-    if not phone_n:
+    if not phone_last4:
         return templates.TemplateResponse(
             request,
             "status_check.html",
-            {**ctx, "results": None, "error": "전화번호를 입력해 주세요."},
+            {**ctx, "results": None, "error": "전화번호 끝 4자리를 숫자 4개로 입력해 주세요."},
         )
 
     result = await db.execute(
@@ -560,7 +561,7 @@ async def status_check_lookup(
         .order_by(MaintenanceRequest.created_at.desc())
     )
     rows = [
-        r for r in result.scalars().all() if _normalize_phone(r.phone) == phone_n
+        r for r in result.scalars().all() if _phone_last4(r.phone) == phone_last4
     ]
 
     if not rows:
@@ -570,7 +571,7 @@ async def status_check_lookup(
             {
                 **ctx,
                 "results": None,
-                "error": "이름과 전화번호가 일치하는 접수 내역이 없습니다.",
+                "error": "이름과 전화번호 끝 4자리가 일치하는 접수 내역이 없습니다.",
             },
         )
 

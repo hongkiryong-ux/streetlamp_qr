@@ -35,22 +35,6 @@ body {
   margin: 0 0 1rem;
 }
 
-.consent-checkbox {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  margin: 0.75rem 0 1rem;
-  font-size: 0.95rem;
-  line-height: 1.4;
-  cursor: pointer;
-}
-
-.consent-checkbox input[type="checkbox"] {
-  width: auto;
-  margin-top: 0.2rem;
-  flex-shrink: 0;
-}
-
 .status-item {
   border-top: 1px solid #eee;
   padding: 0.85rem 0;
