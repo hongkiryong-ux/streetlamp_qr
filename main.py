@@ -176,6 +176,18 @@ def _normalize_name(value: str) -> str:
     return (value or "").strip()
 
 
+ANONYMOUS_SUBMITTER_NAME = "익명"
+
+
+def _resolve_submitter_name(name: str) -> str:
+    n = _normalize_name(name)
+    return n if n else ANONYMOUS_SUBMITTER_NAME
+
+
+def _privacy_consent_given(value: str) -> bool:
+    return (value or "").strip().lower() in ("1", "on", "true", "yes")
+
+
 _lamp_import_lock = asyncio.Lock()
 _lamp_import_done = False
 
@@ -392,8 +404,37 @@ async def lamp_detail(
             "lamp": lamp,
             "lamp_code": _lamp_display_code(lamp),
             "request_types": RequestType,
+            "form_error": None,
+            "name_input": "",
+            "phone_input": "",
+            "content_input": "",
+            "request_type_input": "",
+            "privacy_consent_checked": False,
         },
     )
+
+
+def _lamp_request_form_ctx(
+    lamp,
+    *,
+    form_error: str | None = None,
+    name_input: str = "",
+    phone_input: str = "",
+    content_input: str = "",
+    request_type_input: str = "",
+    privacy_consent_checked: bool = False,
+) -> dict:
+    return {
+        "lamp": lamp,
+        "lamp_code": _lamp_display_code(lamp),
+        "request_types": RequestType,
+        "form_error": form_error,
+        "name_input": name_input,
+        "phone_input": phone_input,
+        "content_input": content_input,
+        "request_type_input": request_type_input,
+        "privacy_consent_checked": privacy_consent_checked,
+    }
 
 
 # 정비 의뢰 접수 처리
@@ -401,10 +442,11 @@ async def lamp_detail(
 async def create_request(
     request: Request,
     lamp_code: str,
-    name: str = Form(...),
+    name: str = Form(""),
     phone: str = Form(...),
     request_type: RequestType = Form(...),
     content: str = Form(""),
+    privacy_consent: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_lamps_from_csv_once()
@@ -412,12 +454,29 @@ async def create_request(
     if not lamp:
         raise HTTPException(status_code=404, detail="해당 가로등을 찾을 수 없습니다.")
 
+    if not _privacy_consent_given(privacy_consent):
+        return templates.TemplateResponse(
+            request,
+            "lamp_detail.html",
+            _lamp_request_form_ctx(
+                lamp,
+                form_error="개인정보 수집·이용에 동의해 주세요.",
+                name_input=name,
+                phone_input=phone,
+                content_input=content,
+                request_type_input=request_type.value,
+                privacy_consent_checked=False,
+            ),
+            status_code=400,
+        )
+
+    name_val = _resolve_submitter_name(name)
     lamp_code_val = _lamp_display_code(lamp)
     lamp_pk = lamp.id
 
     new_req = MaintenanceRequest(
         lamp_id=lamp_pk,
-        name=name,
+        name=name_val,
         phone=phone,
         request_type=request_type,
         content=content,
@@ -436,7 +495,7 @@ async def create_request(
                     req_id=new_req.id,
                     lamp_id=lamp_pk,
                     lamp_code=lamp_code_val,
-                    name=name,
+                    name=name_val,
                     phone=phone,
                     request_type=request_type,
                     content=content,
@@ -473,11 +532,11 @@ async def status_check_form(request: Request):
 @app.post("/status")
 async def status_check_lookup(
     request: Request,
-    name: str = Form(...),
+    name: str = Form(""),
     phone: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
-    name_n = _normalize_name(name)
+    name_n = _resolve_submitter_name(name)
     phone_n = _normalize_phone(phone)
     ctx = {
         "RequestStatus": RequestStatus,
@@ -487,11 +546,11 @@ async def status_check_lookup(
         "phone_input": phone,
     }
 
-    if not name_n or not phone_n:
+    if not phone_n:
         return templates.TemplateResponse(
             request,
             "status_check.html",
-            {**ctx, "results": None, "error": "이름과 전화번호를 모두 입력해 주세요."},
+            {**ctx, "results": None, "error": "전화번호를 입력해 주세요."},
         )
 
     result = await db.execute(
