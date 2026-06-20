@@ -12,7 +12,7 @@ class RequestType(str, enum.Enum):
     outage = "outage"          # 불점등
     globe_broken = "globe_broken"  # 글로브 파손
     fall_risk = "fall_risk"    # 전도 위험
-    low_brightness = "low_brightness"  # 조도 불량
+    low_brightness = "low_brightness"  # 밝기 불량
     other = "other"            # 기타
 class Lamp(Base):
     __tablename__ = "lamps"

@@ -35,7 +35,7 @@ RequestTypeLabel = {
     RequestType.outage.value: "불점등",
     RequestType.globe_broken.value: "글로브 파손",
     RequestType.fall_risk.value: "전도 위험",
-    RequestType.low_brightness.value: "조도 불량",
+    RequestType.low_brightness.value: "밝기 불량",
     RequestType.other.value: "기타",
 }
 RequestStatusLabel = {
